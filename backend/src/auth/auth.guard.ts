@@ -5,12 +5,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { InMemoryStoreService } from '../identity/in-memory-store.service';
 import { AuthenticatedRequest } from '../common/request-context';
+import { AuthService } from './auth.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private readonly store: InMemoryStoreService) {}
+  constructor(private readonly authService: AuthService) {}
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
@@ -23,7 +23,7 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Authentication is required.');
     }
 
-    const { user } = this.store.getSession(token);
+    const { user } = this.authService.resolveSession(token);
     const authenticatedRequest = request as AuthenticatedRequest;
     authenticatedRequest.user = user;
     authenticatedRequest.sessionToken = token;

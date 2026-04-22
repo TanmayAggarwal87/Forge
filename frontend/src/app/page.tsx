@@ -66,8 +66,9 @@ export default function Home() {
   );
   const [projects, setProjects] = useState<Project[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [email, setEmail] = useState("founder@forge.local");
-  const [name, setName] = useState("Forge Builder");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [workspaceName, setWorkspaceName] = useState("Core Platform");
   const [projectName, setProjectName] = useState("Workflow API");
   const [projectDescription, setProjectDescription] = useState(
@@ -217,7 +218,7 @@ export default function Home() {
         "/auth/sign-in",
         {
           method: "POST",
-          body: JSON.stringify({ email, name }),
+          body: JSON.stringify({ email, password, name }),
         },
         null,
       );
@@ -309,20 +310,20 @@ export default function Home() {
           </div>
           <div className="max-w-xl">
             <p className="mb-4 text-sm font-medium uppercase tracking-[0.18em] text-zinc-400">
-              Phase 1 foundation
+              Workspace command center
             </p>
             <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-              Secure workspaces for backend workflow projects.
+              Build, organize, and track your project workspace.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-zinc-300">
-              Sign in, create an organization space, add projects, and verify
-              protected API access before the workflow builder phases begin.
+              Forge keeps your teams, projects, and activity in one focused
+              place so every workflow starts with the right context.
             </p>
           </div>
           <div className="grid gap-3 text-sm text-zinc-300 sm:grid-cols-3">
-            <TrustSignal icon={<KeyRound />} label="Session tokens" />
-            <TrustSignal icon={<Users />} label="Workspace roles" />
-            <TrustSignal icon={<ShieldCheck />} label="Guarded APIs" />
+            <TrustSignal icon={<KeyRound />} label="Private access" />
+            <TrustSignal icon={<Users />} label="Team spaces" />
+            <TrustSignal icon={<ShieldCheck />} label="Activity history" />
           </div>
         </section>
 
@@ -332,10 +333,9 @@ export default function Home() {
             className="w-full max-w-md rounded-lg border border-zinc-800 bg-white p-6 text-zinc-950 shadow-2xl"
           >
             <div>
-              <h2 className="text-2xl font-semibold">Sign in</h2>
+              <h2 className="text-2xl font-semibold">Welcome back</h2>
               <p className="mt-2 text-sm leading-6 text-zinc-600">
-                This phase uses a local development session flow backed by the
-                NestJS API.
+                Sign in to continue managing your Forge workspaces.
               </p>
             </div>
             <div className="mt-6 grid gap-4">
@@ -346,6 +346,7 @@ export default function Home() {
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@company.com"
                   required
                 />
               </label>
@@ -355,6 +356,18 @@ export default function Home() {
                   className="h-10 rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
+                  placeholder="Your name"
+                  required
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                Password
+                <input
+                  className="h-10 rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-950"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter your password"
                   required
                 />
               </label>

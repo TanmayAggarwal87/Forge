@@ -1,20 +1,18 @@
 import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../common/request-context';
 import { AuthGuard } from '../auth/auth.guard';
-import { InMemoryStoreService } from '../identity/in-memory-store.service';
+import { ProjectsService } from './projects.service';
 
 @Controller('projects')
 @UseGuards(AuthGuard)
 export class ProjectsController {
-  constructor(private readonly store: InMemoryStoreService) {}
+  constructor(private readonly projectsService: ProjectsService) {}
 
   @Get(':projectId')
   getProject(
     @Req() request: AuthenticatedRequest,
     @Param('projectId') projectId: string,
   ) {
-    return {
-      project: this.store.getProjectForUser(projectId, request.user.id),
-    };
+    return this.projectsService.getProject(projectId, request.user.id);
   }
 }

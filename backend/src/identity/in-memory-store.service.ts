@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import {
   Injectable,
   NotFoundException,
@@ -37,15 +37,19 @@ export class InMemoryStoreService {
   private readonly projects = new Map<string, Project>();
   private readonly auditLogs: AuditLog[] = [];
 
-  signIn(email: string, name?: string): { token: string; user: SessionUser } {
+  signIn(
+    email: string,
+    password: string,
+    name?: string,
+  ): { token: string; user: SessionUser } {
     const normalizedEmail = email.trim().toLowerCase();
     const existingUserId = this.usersByEmail.get(normalizedEmail);
     const user =
       existingUserId !== undefined
         ? this.users.get(existingUserId)
-        : this.createUser(normalizedEmail, name);
+        : this.createUser(normalizedEmail, password, name);
 
-    if (!user) {
+    if (!user || !this.isPasswordValid(user, password)) {
       throw new UnauthorizedException('Unable to resolve user account.');
     }
 
@@ -210,12 +214,15 @@ export class InMemoryStoreService {
       .reverse();
   }
 
-  private createUser(email: string, name?: string): User {
+  private createUser(email: string, password: string, name?: string): User {
     const now = new Date().toISOString();
+    const passwordSalt = randomBytes(16).toString('hex');
     const user: User = {
       id: randomUUID(),
       email,
       name: name?.trim() || email.split('@')[0],
+      passwordHash: this.hashPassword(password, passwordSalt),
+      passwordSalt,
       createdAt: now,
     };
 
@@ -250,6 +257,23 @@ export class InMemoryStoreService {
       .replace(/^-+|-+$/g, '');
 
     return slug || randomUUID();
+  }
+
+  private hashPassword(password: string, salt: string): string {
+    return scryptSync(password, salt, 64).toString('hex');
+  }
+
+  private isPasswordValid(user: User, password: string): boolean {
+    const expectedHash = Buffer.from(user.passwordHash, 'hex');
+    const providedHash = Buffer.from(
+      this.hashPassword(password, user.passwordSalt),
+      'hex',
+    );
+
+    return (
+      expectedHash.length === providedHash.length &&
+      timingSafeEqual(expectedHash, providedHash)
+    );
   }
 
   private toSessionUser(user: User): SessionUser {
