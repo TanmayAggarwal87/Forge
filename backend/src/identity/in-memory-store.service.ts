@@ -1,5 +1,8 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import {
+  ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -27,6 +30,15 @@ type CreateProjectInput = {
   actorUserId: string;
 };
 
+type DatabaseShape = {
+  users: User[];
+  sessions: Session[];
+  workspaces: Workspace[];
+  members: WorkspaceMember[];
+  projects: Project[];
+  auditLogs: AuditLog[];
+};
+
 @Injectable()
 export class InMemoryStoreService {
   private readonly users = new Map<string, User>();
@@ -36,23 +48,53 @@ export class InMemoryStoreService {
   private readonly members: WorkspaceMember[] = [];
   private readonly projects = new Map<string, Project>();
   private readonly auditLogs: AuditLog[] = [];
+  private readonly databasePath =
+    process.env.FORGE_DATABASE_PATH ??
+    join(process.cwd(), 'data', 'forgeDatabase.json');
 
-  signIn(
+  constructor() {
+    this.loadDatabase();
+  }
+
+  register(
     email: string,
     password: string,
-    name?: string,
+    name: string,
   ): { token: string; user: SessionUser } {
     const normalizedEmail = email.trim().toLowerCase();
     const existingUserId = this.usersByEmail.get(normalizedEmail);
-    const user =
-      existingUserId !== undefined
-        ? this.users.get(existingUserId)
-        : this.createUser(normalizedEmail, password, name);
 
-    if (!user || !this.isPasswordValid(user, password)) {
-      throw new UnauthorizedException('Unable to resolve user account.');
+    if (existingUserId !== undefined) {
+      throw new ConflictException('A user with this email already exists.');
     }
 
+    const user = this.createUser(normalizedEmail, password, name);
+    this.recordAudit({
+      actorUserId: user.id,
+      workspaceId: null,
+      action: 'auth.register',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { email: user.email },
+    });
+
+    return this.createSession(user);
+  }
+
+  login(email: string, password: string): { token: string; user: SessionUser } {
+    const normalizedEmail = email.trim().toLowerCase();
+    const existingUserId = this.usersByEmail.get(normalizedEmail);
+    const user =
+      existingUserId === undefined ? undefined : this.users.get(existingUserId);
+
+    if (!user || !this.isPasswordValid(user, password)) {
+      throw new UnauthorizedException('Email or password is incorrect.');
+    }
+
+    return this.createSession(user);
+  }
+
+  private createSession(user: User): { token: string; user: SessionUser } {
     const token = randomBytes(32).toString('hex');
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7);
@@ -72,6 +114,7 @@ export class InMemoryStoreService {
       targetId: user.id,
       metadata: { email: user.email },
     });
+    this.saveDatabase();
 
     return { token, user: this.toSessionUser(user) };
   }
@@ -81,6 +124,7 @@ export class InMemoryStoreService {
     if (!session || new Date(session.expiresAt).getTime() <= Date.now()) {
       if (session) {
         this.sessions.delete(token);
+        this.saveDatabase();
       }
       throw new UnauthorizedException('Authentication is required.');
     }
@@ -88,6 +132,7 @@ export class InMemoryStoreService {
     const user = this.users.get(session.userId);
     if (!user) {
       this.sessions.delete(token);
+      this.saveDatabase();
       throw new UnauthorizedException('Authentication is required.');
     }
 
@@ -104,6 +149,7 @@ export class InMemoryStoreService {
       targetId: actorUserId,
       metadata: {},
     });
+    this.saveDatabase();
   }
 
   createWorkspace(input: CreateWorkspaceInput): Workspace {
@@ -130,6 +176,7 @@ export class InMemoryStoreService {
       targetId: workspace.id,
       metadata: { name: workspace.name },
     });
+    this.saveDatabase();
 
     return workspace;
   }
@@ -183,6 +230,7 @@ export class InMemoryStoreService {
       targetId: project.id,
       metadata: { name: project.name },
     });
+    this.saveDatabase();
 
     return project;
   }
@@ -228,6 +276,7 @@ export class InMemoryStoreService {
 
     this.users.set(user.id, user);
     this.usersByEmail.set(user.email, user.id);
+    this.saveDatabase();
     return user;
   }
 
@@ -282,5 +331,49 @@ export class InMemoryStoreService {
       email: user.email,
       name: user.name,
     };
+  }
+
+  private loadDatabase(): void {
+    if (!existsSync(this.databasePath)) {
+      return;
+    }
+
+    const rawDatabase = readFileSync(this.databasePath, 'utf8');
+    const database = JSON.parse(rawDatabase) as Partial<DatabaseShape>;
+
+    for (const user of database.users ?? []) {
+      this.users.set(user.id, user);
+      this.usersByEmail.set(user.email, user.id);
+    }
+
+    for (const session of database.sessions ?? []) {
+      this.sessions.set(session.token, session);
+    }
+
+    for (const workspace of database.workspaces ?? []) {
+      this.workspaces.set(workspace.id, workspace);
+    }
+
+    this.members.push(...(database.members ?? []));
+
+    for (const project of database.projects ?? []) {
+      this.projects.set(project.id, project);
+    }
+
+    this.auditLogs.push(...(database.auditLogs ?? []));
+  }
+
+  private saveDatabase(): void {
+    mkdirSync(dirname(this.databasePath), { recursive: true });
+    const database: DatabaseShape = {
+      users: Array.from(this.users.values()),
+      sessions: Array.from(this.sessions.values()),
+      workspaces: Array.from(this.workspaces.values()),
+      members: this.members,
+      projects: Array.from(this.projects.values()),
+      auditLogs: this.auditLogs,
+    };
+
+    writeFileSync(this.databasePath, JSON.stringify(database, null, 2));
   }
 }

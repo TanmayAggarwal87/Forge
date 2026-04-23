@@ -9,7 +9,17 @@ export class AuthController {
 
   @Post('sign-in')
   signIn(@Body() body: Record<string, unknown>) {
-    return this.authService.signIn(body);
+    return this.authService.login(body);
+  }
+
+  @Post('login')
+  login(@Body() body: Record<string, unknown>) {
+    return this.authService.login(body);
+  }
+
+  @Post('register')
+  register(@Body() body: Record<string, unknown>) {
+    return this.authService.register(body);
   }
 
   @Get('session')

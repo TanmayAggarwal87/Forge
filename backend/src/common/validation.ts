@@ -33,3 +33,18 @@ export function requireEmail(value: unknown, fieldName: string): string {
 
   return email;
 }
+
+export function requirePassword(
+  value: unknown,
+  fieldName = 'password',
+): string {
+  const password = requireString(value, fieldName, 128);
+
+  if (password.length < 8) {
+    throw new BadRequestException(
+      `${fieldName} must be at least 8 characters.`,
+    );
+  }
+
+  return password;
+}

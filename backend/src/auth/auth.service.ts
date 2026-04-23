@@ -1,21 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../common/request-context';
-import { requireEmail, requireString } from '../common/validation';
+import {
+  requireEmail,
+  requirePassword,
+  requireString,
+} from '../common/validation';
 import { InMemoryStoreService } from '../identity/in-memory-store.service';
 
 @Injectable()
 export class AuthService {
   constructor(private readonly store: InMemoryStoreService) {}
 
-  signIn(body: Record<string, unknown>) {
+  register(body: Record<string, unknown>) {
     const email = requireEmail(body.email, 'email');
-    const password = requireString(body.password, 'password', 128);
-    const name =
-      body.name === undefined
-        ? undefined
-        : requireString(body.name, 'name', 80);
+    const password = requirePassword(body.password);
+    const name = requireString(body.name, 'name', 80);
 
-    return this.store.signIn(email, password, name);
+    return this.store.register(email, password, name);
+  }
+
+  login(body: Record<string, unknown>) {
+    const email = requireEmail(body.email, 'email');
+    const password = requirePassword(body.password);
+
+    return this.store.login(email, password);
   }
 
   getSession(request: AuthenticatedRequest) {
