@@ -9,9 +9,11 @@ type ProjectPanelProps = {
   projectDescription: string;
   projectName: string;
   projects: Project[];
+  selectedProjectId: string | null;
   selectedWorkspaceId: string | null;
   setProjectDescription: (description: string) => void;
   setProjectName: (name: string) => void;
+  setSelectedProjectId: (projectId: string) => void;
 };
 
 export function ProjectPanel({
@@ -20,9 +22,11 @@ export function ProjectPanel({
   projectDescription,
   projectName,
   projects,
+  selectedProjectId,
   selectedWorkspaceId,
   setProjectDescription,
   setProjectName,
+  setSelectedProjectId,
 }: ProjectPanelProps) {
   return (
     <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
@@ -60,22 +64,27 @@ export function ProjectPanel({
           </p>
         ) : (
           projects.map((project) => (
-            <article
+            <button
               key={project.id}
-              className="rounded-2xl border border-stone-200 p-4"
+              onClick={() => setSelectedProjectId(project.id)}
+              className={`rounded-2xl border p-4 text-left transition ${
+                project.id === selectedProjectId
+                  ? "border-stone-950 bg-stone-950 text-white"
+                  : "border-stone-200 bg-white hover:border-amber-300 hover:bg-amber-50"
+              }`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="font-semibold">{project.name}</h2>
-                  <p className="mt-1 text-sm text-stone-600">
+                  <p className="mt-1 text-sm opacity-80">
                     {project.description ?? "No description"}
                   </p>
                 </div>
-                <span className="rounded-xl bg-stone-100 px-2 py-1 text-xs text-stone-600">
+                <span className="rounded-xl bg-black/5 px-2 py-1 text-xs opacity-80">
                   {project.slug}
                 </span>
               </div>
-            </article>
+            </button>
           ))
         )}
       </div>

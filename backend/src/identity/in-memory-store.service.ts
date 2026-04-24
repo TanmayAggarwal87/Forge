@@ -13,6 +13,10 @@ import {
   Session,
   SessionUser,
   User,
+  Workflow,
+  WorkflowGraph,
+  WorkflowValidationResult,
+  WorkflowVersion,
   Workspace,
   WorkspaceMember,
   WorkspaceRole,
@@ -30,12 +34,33 @@ type CreateProjectInput = {
   actorUserId: string;
 };
 
+type CreateWorkflowInput = {
+  projectId: string;
+  name: string;
+  description?: string | null;
+  graph: WorkflowGraph;
+  validation: WorkflowValidationResult;
+  actorUserId: string;
+};
+
+type SaveWorkflowDraftInput = {
+  projectId: string;
+  workflowId: string;
+  name?: string;
+  description?: string | null;
+  graph: WorkflowGraph;
+  validation: WorkflowValidationResult;
+  actorUserId: string;
+};
+
 type DatabaseShape = {
   users: User[];
   sessions: Session[];
   workspaces: Workspace[];
   members: WorkspaceMember[];
   projects: Project[];
+  workflows: Workflow[];
+  workflowVersions: WorkflowVersion[];
   auditLogs: AuditLog[];
 };
 
@@ -47,6 +72,8 @@ export class InMemoryStoreService {
   private readonly workspaces = new Map<string, Workspace>();
   private readonly members: WorkspaceMember[] = [];
   private readonly projects = new Map<string, Project>();
+  private readonly workflows = new Map<string, Workflow>();
+  private readonly workflowVersions = new Map<string, WorkflowVersion>();
   private readonly auditLogs: AuditLog[] = [];
   private readonly databasePath =
     process.env.FORGE_DATABASE_PATH ??
@@ -253,6 +280,159 @@ export class InMemoryStoreService {
     return project;
   }
 
+  createWorkflow(input: CreateWorkflowInput): Workflow & {
+    draftVersion: WorkflowVersion;
+  } {
+    const project = this.getProjectForUser(input.projectId, input.actorUserId);
+    const now = new Date().toISOString();
+
+    const draftVersion: WorkflowVersion = {
+      id: randomUUID(),
+      workflowId: '',
+      projectId: input.projectId,
+      versionNumber: 1,
+      status: 'draft',
+      graph: input.graph,
+      validation: input.validation,
+      createdByUserId: input.actorUserId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const workflow: Workflow = {
+      id: randomUUID(),
+      projectId: input.projectId,
+      name: input.name,
+      slug: this.slugify(input.name),
+      description: input.description?.trim() || null,
+      status: 'draft',
+      draftVersionId: draftVersion.id,
+      publishedVersionId: null,
+      createdByUserId: input.actorUserId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    draftVersion.workflowId = workflow.id;
+    this.workflows.set(workflow.id, workflow);
+    this.workflowVersions.set(draftVersion.id, draftVersion);
+    this.recordAudit({
+      actorUserId: input.actorUserId,
+      workspaceId: project.workspaceId,
+      action: 'workflow.created',
+      targetType: 'workflow',
+      targetId: workflow.id,
+      metadata: {
+        name: workflow.name,
+        nodeCount: draftVersion.graph.nodes.length,
+        edgeCount: draftVersion.graph.edges.length,
+      },
+    });
+    this.saveDatabase();
+
+    return {
+      ...workflow,
+      draftVersion,
+    };
+  }
+
+  listWorkflows(
+    projectId: string,
+    userId: string,
+  ): Array<Workflow & { draftVersion: WorkflowVersion }> {
+    this.getProjectForUser(projectId, userId);
+
+    return Array.from(this.workflows.values())
+      .filter((workflow) => workflow.projectId === projectId)
+      .map((workflow) => {
+        const draftVersion = this.workflowVersions.get(workflow.draftVersionId);
+
+        if (!draftVersion) {
+          throw new NotFoundException('Workflow draft version was not found.');
+        }
+
+        return {
+          ...workflow,
+          draftVersion,
+        };
+      })
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  getWorkflowDraftForUser(
+    projectId: string,
+    workflowId: string,
+    userId: string,
+  ): Workflow & { draftVersion: WorkflowVersion } {
+    this.getProjectForUser(projectId, userId);
+
+    const workflow = this.workflows.get(workflowId);
+    if (!workflow || workflow.projectId !== projectId) {
+      throw new NotFoundException('Workflow was not found.');
+    }
+
+    const draftVersion = this.workflowVersions.get(workflow.draftVersionId);
+    if (!draftVersion) {
+      throw new NotFoundException('Workflow draft version was not found.');
+    }
+
+    return {
+      ...workflow,
+      draftVersion,
+    };
+  }
+
+  saveWorkflowDraft(input: SaveWorkflowDraftInput): Workflow & {
+    draftVersion: WorkflowVersion;
+  } {
+    const workflow = this.getWorkflowDraftForUser(
+      input.projectId,
+      input.workflowId,
+      input.actorUserId,
+    );
+    const project = this.getProjectForUser(input.projectId, input.actorUserId);
+    const nextUpdatedAt = new Date().toISOString();
+
+    const updatedWorkflow: Workflow = {
+      ...workflow,
+      name: input.name ?? workflow.name,
+      slug: this.slugify(input.name ?? workflow.name),
+      description:
+        input.description === undefined
+          ? workflow.description
+          : input.description,
+      updatedAt: nextUpdatedAt,
+    };
+
+    const updatedDraftVersion: WorkflowVersion = {
+      ...workflow.draftVersion,
+      graph: input.graph,
+      validation: input.validation,
+      updatedAt: nextUpdatedAt,
+    };
+
+    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.workflowVersions.set(updatedDraftVersion.id, updatedDraftVersion);
+    this.recordAudit({
+      actorUserId: input.actorUserId,
+      workspaceId: project.workspaceId,
+      action: 'workflow.draft_saved',
+      targetType: 'workflow',
+      targetId: updatedWorkflow.id,
+      metadata: {
+        nodeCount: updatedDraftVersion.graph.nodes.length,
+        edgeCount: updatedDraftVersion.graph.edges.length,
+        issueCount: updatedDraftVersion.validation.issues.length,
+      },
+    });
+    this.saveDatabase();
+
+    return {
+      ...updatedWorkflow,
+      draftVersion: updatedDraftVersion,
+    };
+  }
+
   listAuditLogs(workspaceId: string, userId: string): AuditLog[] {
     this.getWorkspaceForUser(workspaceId, userId);
 
@@ -360,6 +540,14 @@ export class InMemoryStoreService {
       this.projects.set(project.id, project);
     }
 
+    for (const workflow of database.workflows ?? []) {
+      this.workflows.set(workflow.id, workflow);
+    }
+
+    for (const workflowVersion of database.workflowVersions ?? []) {
+      this.workflowVersions.set(workflowVersion.id, workflowVersion);
+    }
+
     this.auditLogs.push(...(database.auditLogs ?? []));
   }
 
@@ -371,6 +559,8 @@ export class InMemoryStoreService {
       workspaces: Array.from(this.workspaces.values()),
       members: this.members,
       projects: Array.from(this.projects.values()),
+      workflows: Array.from(this.workflows.values()),
+      workflowVersions: Array.from(this.workflowVersions.values()),
       auditLogs: this.auditLogs,
     };
 

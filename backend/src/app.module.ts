@@ -9,6 +9,9 @@ import { ProjectsService } from './projects/projects.service';
 import { WorkspacesController } from './workspaces/workspaces.controller';
 import { WorkspacesService } from './workspaces/workspaces.service';
 import { InMemoryStoreService } from './identity/in-memory-store.service';
+import { NodeRegistryController } from './workflows/node-registry.controller';
+import { WorkflowsController } from './workflows/workflows.controller';
+import { WorkflowsService } from './workflows/workflows.service';
 
 @Module({
   imports: [],
@@ -16,7 +19,9 @@ import { InMemoryStoreService } from './identity/in-memory-store.service';
     AppController,
     AuditController,
     AuthController,
+    NodeRegistryController,
     ProjectsController,
+    WorkflowsController,
     WorkspacesController,
   ],
   providers: [
@@ -24,6 +29,7 @@ import { InMemoryStoreService } from './identity/in-memory-store.service';
     AuthService,
     InMemoryStoreService,
     ProjectsService,
+    WorkflowsService,
     WorkspacesService,
   ],
 })

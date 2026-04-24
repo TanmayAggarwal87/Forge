@@ -5,6 +5,7 @@ import { BrandMark } from "@/components/common/brandMark";
 import { AuditLogPanel } from "@/components/dashboard/auditLogPanel";
 import { MetricCard } from "@/components/dashboard/metricCard";
 import { ProjectPanel } from "@/components/dashboard/projectPanel";
+import { WorkflowStudio } from "@/components/dashboard/workflowStudio";
 import { WorkspaceSidebar } from "@/components/dashboard/workspaceSidebar";
 import { Button } from "@/components/ui/button";
 import { ErrorMessage } from "@/components/ui/errorMessage";
@@ -68,6 +69,7 @@ export function DashboardPage() {
               <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
                 <MetricCard label="Workspaces" value={app.workspaces.length} />
                 <MetricCard label="Projects" value={app.projects.length} />
+                <MetricCard label="Workflows" value={app.workflows.length} />
                 <MetricCard label="Audit logs" value={app.auditLogs.length} />
               </div>
             </div>
@@ -80,12 +82,38 @@ export function DashboardPage() {
               projectDescription={app.projectDescription}
               projectName={app.projectName}
               projects={app.projects}
+              selectedProjectId={app.selectedProjectId}
               selectedWorkspaceId={app.selectedWorkspaceId}
               setProjectDescription={app.setProjectDescription}
               setProjectName={app.setProjectName}
+              setSelectedProjectId={app.setSelectedProjectId}
             />
             <AuditLogPanel auditLogs={app.auditLogs} />
           </div>
+
+          <WorkflowStudio
+            autosaveState={app.autosaveState}
+            isBusy={app.isBusy}
+            isSavingDraft={app.isSavingDraft}
+            nodeDefinitions={app.nodeDefinitions}
+            onAddEdge={app.handleAddEdge}
+            onAddNode={app.handleAddNode}
+            onCreateWorkflow={app.handleCreateWorkflow}
+            onRemoveEdge={app.handleRemoveEdge}
+            onRemoveNode={app.handleRemoveNode}
+            onSelectWorkflow={app.handleSelectWorkflow}
+            onSetWorkflowDescription={app.setWorkflowDescription}
+            onSetWorkflowName={app.setWorkflowName}
+            onUpdateNodeLabel={app.handleUpdateNodeLabel}
+            onWorkflowDraftDescriptionChange={app.handleWorkflowDescriptionChange}
+            onWorkflowDraftNameChange={app.handleWorkflowNameChange}
+            selectedProject={app.selectedProject}
+            selectedWorkflowId={app.selectedWorkflowId}
+            workflowDescription={app.workflowDescription}
+            workflowDraft={app.workflowDraft}
+            workflowName={app.workflowName}
+            workflows={app.workflows}
+          />
         </section>
       </div>
     </main>
