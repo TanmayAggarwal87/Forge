@@ -121,10 +121,30 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html,
+  body {
+    height: 100%;
+  }
   body {
     @apply bg-background text-foreground;
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer components {
+  .workflow-canvas .react-flow__attribution {
+    display: none;
+  }
+
+  .workflow-canvas .react-flow__controls-button {
+    border-bottom-color: rgb(226 232 240);
+    color: rgb(71 85 105);
+  }
+
+  .workflow-canvas .react-flow__minimap {
+    border-radius: 0.5rem;
+    overflow: hidden;
   }
 }

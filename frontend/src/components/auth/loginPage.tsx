@@ -42,7 +42,7 @@ export function LoginPage() {
       );
 
       storeSessionToken(payload.token);
-      router.push("/");
+      router.push("/dashboard");
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
