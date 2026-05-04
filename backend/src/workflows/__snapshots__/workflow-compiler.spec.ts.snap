@@ -1,0 +1,119 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`compileWorkflowGraph compiles a publishable workflow into deterministic IR 1`] = `
+{
+  "edges": [
+    {
+      "condition": null,
+      "id": "edge-1",
+      "label": null,
+      "sourceNodeId": "trigger-1",
+      "targetNodeId": "transform-1",
+    },
+    {
+      "condition": null,
+      "id": "edge-2",
+      "label": null,
+      "sourceNodeId": "transform-1",
+      "targetNodeId": "response-1",
+    },
+  ],
+  "executionOrder": [
+    "trigger-1",
+    "transform-1",
+    "response-1",
+  ],
+  "formatVersion": 1,
+  "graphHash": "224e4a328127d1521693d9b51b1d2fd89f59e38b4aa3e003619d16c4a761a22e",
+  "nodes": [
+    {
+      "config": {
+        "method": "POST",
+        "path": "/approvals",
+      },
+      "definitionVersion": 1,
+      "dependsOn": [],
+      "executionMode": "sync",
+      "id": "trigger-1",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "type": "object",
+          },
+        },
+        "required": [
+          "request",
+        ],
+        "type": "object",
+      },
+      "label": "HTTP Trigger",
+      "nextNodeIds": [
+        "transform-1",
+      ],
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object",
+      },
+      "retryable": false,
+      "timeoutMs": 15000,
+      "type": "trigger.http",
+    },
+    {
+      "config": {
+        "template": {
+          "status": "received",
+        },
+      },
+      "definitionVersion": 1,
+      "dependsOn": [
+        "trigger-1",
+      ],
+      "executionMode": "sync",
+      "id": "transform-1",
+      "inputSchema": {
+        "additionalProperties": true,
+        "type": "object",
+      },
+      "label": "Normalize Payload",
+      "nextNodeIds": [
+        "response-1",
+      ],
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object",
+      },
+      "retryable": false,
+      "timeoutMs": 5000,
+      "type": "logic.transform",
+    },
+    {
+      "config": {
+        "statusCode": 202,
+      },
+      "definitionVersion": 1,
+      "dependsOn": [
+        "transform-1",
+      ],
+      "executionMode": "sync",
+      "id": "response-1",
+      "inputSchema": {
+        "additionalProperties": true,
+        "type": "object",
+      },
+      "label": "Build Response",
+      "nextNodeIds": [],
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object",
+      },
+      "retryable": false,
+      "timeoutMs": 5000,
+      "type": "utility.response_builder",
+    },
+  ],
+  "triggerNodeIds": [
+    "trigger-1",
+  ],
+}
+`;

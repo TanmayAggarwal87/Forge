@@ -76,6 +76,44 @@ export type WorkflowValidationResult = {
   issues: WorkflowValidationIssue[];
 };
 
+export type WorkflowIrNode = {
+  id: string;
+  type: string;
+  definitionVersion: number;
+  label: string;
+  executionMode: "sync" | "async";
+  retryable: boolean;
+  timeoutMs: number;
+  dependsOn: string[];
+  nextNodeIds: string[];
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  config: Record<string, unknown>;
+};
+
+export type WorkflowIrEdge = {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  label: string | null;
+  condition: string | null;
+};
+
+export type WorkflowIntermediateRepresentation = {
+  formatVersion: 1;
+  graphHash: string;
+  triggerNodeIds: string[];
+  executionOrder: string[];
+  nodes: WorkflowIrNode[];
+  edges: WorkflowIrEdge[];
+};
+
+export type WorkflowCompilationResult = {
+  isValid: boolean;
+  issues: WorkflowValidationIssue[];
+  ir: WorkflowIntermediateRepresentation | null;
+};
+
 export type WorkflowDraftVersion = {
   id: string;
   workflowId: string;

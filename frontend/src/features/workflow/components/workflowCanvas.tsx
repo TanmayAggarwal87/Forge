@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   addEdge,
   applyEdgeChanges,
@@ -59,8 +59,8 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reactFlow = useReactFlow<WorkflowCanvasNode, WorkflowEdge>();
   // Stable initial viewport — only read once on mount, never re-derived
-  const initialViewport = useRef(workflow.viewport ?? defaultViewport);
-  const [currentZoom, setCurrentZoom] = useState(() => initialViewport.current.zoom ?? 1);
+  const [initialViewport] = useState(() => workflow.viewport ?? defaultViewport);
+  const [currentZoom, setCurrentZoom] = useState(() => initialViewport.zoom ?? 1);
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowCanvasNode>(workflow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowEdge>(workflow.edges);
 
@@ -191,7 +191,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        defaultViewport={initialViewport.current}
+        defaultViewport={initialViewport}
         fitView={false}
         minZoom={0.35}
         maxZoom={2}

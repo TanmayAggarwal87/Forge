@@ -10,6 +10,7 @@ import type {
 import { InMemoryStoreService } from '../identity/in-memory-store.service';
 import { validateWorkflowGraph } from './graph-validation';
 import { nodeRegistry } from './node-registry';
+import { compileWorkflowGraph } from './workflow-compiler';
 
 type WorkflowSummary = Pick<
   Workflow,
@@ -87,6 +88,21 @@ export class WorkflowsService {
         projectId,
         workflowId,
         userId,
+      ),
+    };
+  }
+
+  compileDraft(projectId: string, workflowId: string, userId: string) {
+    const workflow = this.store.getWorkflowDraftForUser(
+      projectId,
+      workflowId,
+      userId,
+    );
+
+    return {
+      compilation: compileWorkflowGraph(
+        workflow.draftVersion.graph,
+        this.registryByType,
       ),
     };
   }

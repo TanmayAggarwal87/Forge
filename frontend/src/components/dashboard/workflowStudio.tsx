@@ -2,28 +2,39 @@ import { FormEvent, useMemo, useState } from "react";
 import {
   Cable,
   CircleAlert,
+  Code2,
   GitBranch,
   Layers3,
+  Play,
   Plus,
   Save,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { NodeDefinition, Project, Workflow } from "@/types/domainTypes";
+import type {
+  NodeDefinition,
+  Project,
+  Workflow,
+  WorkflowCompilationResult,
+} from "@/types/domainTypes";
 
 type WorkflowStudioProps = {
   autosaveState: "idle" | "pending" | "saving" | "saved" | "error";
+  compilationResult: WorkflowCompilationResult | null;
   isBusy: boolean;
+  isCompilingDraft: boolean;
   isSavingDraft: boolean;
   nodeDefinitions: NodeDefinition[];
   onAddEdge: (sourceNodeId: string, targetNodeId: string, label: string) => void;
   onAddNode: (definition: NodeDefinition) => void;
+  onCompileDraft: () => void;
   onCreateWorkflow: (event: FormEvent<HTMLFormElement>) => void;
   onRemoveEdge: (edgeId: string) => void;
   onRemoveNode: (nodeId: string) => void;
   onSelectWorkflow: (workflowId: string) => void;
   onSetWorkflowDescription: (value: string) => void;
   onSetWorkflowName: (value: string) => void;
+  onUpdateNodeConfig: (nodeId: string, rawConfig: string) => void;
   onUpdateNodeLabel: (nodeId: string, label: string) => void;
   onWorkflowDraftDescriptionChange: (value: string) => void;
   onWorkflowDraftNameChange: (value: string) => void;
@@ -52,17 +63,21 @@ function getAutosaveLabel(state: WorkflowStudioProps["autosaveState"]) {
 
 export function WorkflowStudio({
   autosaveState,
+  compilationResult,
   isBusy,
+  isCompilingDraft,
   isSavingDraft,
   nodeDefinitions,
   onAddEdge,
   onAddNode,
+  onCompileDraft,
   onCreateWorkflow,
   onRemoveEdge,
   onRemoveNode,
   onSelectWorkflow,
   onSetWorkflowDescription,
   onSetWorkflowName,
+  onUpdateNodeConfig,
   onUpdateNodeLabel,
   onWorkflowDraftDescriptionChange,
   onWorkflowDraftNameChange,
@@ -296,6 +311,14 @@ export function WorkflowStudio({
                                   {Math.round(node.position.x)},{Math.round(node.position.y)}
                                 </span>
                               </div>
+                              <textarea
+                                className="min-h-28 rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 font-mono text-xs outline-none focus:border-stone-950"
+                                defaultValue={JSON.stringify(node.config, null, 2)}
+                                spellCheck={false}
+                                onBlur={(event) =>
+                                  onUpdateNodeConfig(node.id, event.target.value)
+                                }
+                              />
                             </div>
                             <Button
                               variant="outline"
@@ -397,9 +420,20 @@ export function WorkflowStudio({
               <div
                 className={`rounded-3xl border p-5 shadow-sm ${validationTone}`}
               >
-                <div className="mb-4 flex items-center gap-2 font-semibold text-stone-950">
-                  <CircleAlert className="size-4 text-amber-700" />
-                  Draft validation
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2 font-semibold text-stone-950">
+                    <CircleAlert className="size-4 text-amber-700" />
+                    Draft validation
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="rounded-xl"
+                    disabled={isCompilingDraft || autosaveState === "saving"}
+                    onClick={onCompileDraft}
+                  >
+                    <Play />
+                    {isCompilingDraft ? "Compiling" : "Compile draft"}
+                  </Button>
                 </div>
                 <div className="rounded-2xl border border-white/80 bg-white/70 p-4 text-sm text-stone-700">
                   <p className="font-medium text-stone-950">
@@ -438,6 +472,51 @@ export function WorkflowStudio({
                     ))
                   )}
                 </div>
+
+                {compilationResult ? (
+                  <div className="mt-4 rounded-2xl border border-white/80 bg-white/80 p-4">
+                    <div className="flex items-center gap-2 font-semibold text-stone-950">
+                      <Code2 className="size-4 text-amber-700" />
+                      Compiler readiness
+                    </div>
+                    <p className="mt-2 text-sm text-stone-700">
+                      {compilationResult.isValid
+                        ? "Draft compiles to executable IR."
+                        : "Compiler found hard errors that block publish."}
+                    </p>
+                    {compilationResult.ir ? (
+                      <div className="mt-3 grid gap-2 rounded-xl bg-stone-950 p-3 font-mono text-xs text-stone-100">
+                        <p>hash {compilationResult.ir.graphHash.slice(0, 16)}</p>
+                        <p>
+                          order {compilationResult.ir.executionOrder.join(" -> ")}
+                        </p>
+                      </div>
+                    ) : null}
+                    {compilationResult.issues.length > 0 ? (
+                      <div className="mt-3 grid gap-2">
+                        {compilationResult.issues.map((issue, index) => (
+                          <article
+                            key={`compile-${issue.code}-${index}`}
+                            className="rounded-xl border border-stone-200 bg-white p-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-medium text-stone-950">
+                                {issue.message}
+                              </p>
+                              <span className="rounded-lg bg-stone-100 px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-stone-600">
+                                {issue.severity}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-stone-500">
+                              {issue.code}
+                              {issue.field ? ` - ${issue.field}` : ""}
+                            </p>
+                          </article>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           </>

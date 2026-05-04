@@ -15,8 +15,8 @@ export function NodeLibrarySidebar() {
   const query = nodeSearch.trim().toLowerCase();
 
   return (
-    <aside className="flex h-full flex-col border-r border-slate-200 bg-white">
-      <div className="border-b border-slate-200 p-4">
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200 bg-white">
+      <div className="shrink-0 border-b border-slate-200 p-4">
         <h2 className="text-sm font-semibold text-slate-900">Node Library</h2>
         <div className="relative mt-3">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -29,7 +29,7 @@ export function NodeLibrarySidebar() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {nodeCategories.map((category) => {
           const isCollapsed = collapsedCategories.includes(category);
           const items = nodeDefinitions.filter((definition) => {

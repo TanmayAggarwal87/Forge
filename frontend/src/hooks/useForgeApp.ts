@@ -13,6 +13,7 @@ import type {
   Project,
   SessionUser,
   Workflow,
+  WorkflowCompilationResult,
   Workspace,
 } from "@/types/domainTypes";
 
@@ -36,6 +37,10 @@ function createWorkflowSummary(workflow: Workflow): Workflow {
 
 function createClientId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function useForgeApp() {
@@ -68,6 +73,9 @@ export function useForgeApp() {
   );
   const [isBusy, setIsBusy] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isCompilingDraft, setIsCompilingDraft] = useState(false);
+  const [compilationResult, setCompilationResult] =
+    useState<WorkflowCompilationResult | null>(null);
   const [autosaveState, setAutosaveState] = useState<AutosaveState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const lastSavedSignatureRef = useRef<string | null>(null);
@@ -122,6 +130,7 @@ export function useForgeApp() {
     setAutosaveState(
       signature && signature !== lastSavedSignatureRef.current ? "pending" : "saved",
     );
+    setCompilationResult(null);
     replaceWorkflowSummary(createWorkflowSummary(nextWorkflow));
   }, [replaceWorkflowSummary]);
 
@@ -139,6 +148,7 @@ export function useForgeApp() {
       setSelectedProjectId(null);
       setSelectedWorkflowId(null);
       setWorkflowDraft(null);
+      setCompilationResult(null);
       lastSavedSignatureRef.current = null;
       latestDraftSignatureRef.current = null;
       latestWorkflowIdRef.current = null;
@@ -260,6 +270,7 @@ export function useForgeApp() {
       latestDraftSignatureRef.current = signature;
       latestWorkflowIdRef.current = payload.workflow.id;
       setWorkflowDraft(payload.workflow);
+      setCompilationResult(null);
       replaceWorkflowSummary(createWorkflowSummary(payload.workflow));
       setAutosaveState(signature ? "saved" : "idle");
     },
@@ -508,6 +519,7 @@ export function useForgeApp() {
     setWorkflows([]);
     setSelectedWorkflowId(null);
     setWorkflowDraft(null);
+    setCompilationResult(null);
     setAutosaveState("idle");
   }
 
@@ -516,12 +528,14 @@ export function useForgeApp() {
     setWorkflows([]);
     setSelectedWorkflowId(null);
     setWorkflowDraft(null);
+    setCompilationResult(null);
     setAutosaveState("idle");
   }
 
   function handleSelectWorkflow(workflowId: string) {
     setSelectedWorkflowId(workflowId);
     setWorkflowDraft(null);
+    setCompilationResult(null);
     setAutosaveState("idle");
   }
 
@@ -599,6 +613,37 @@ export function useForgeApp() {
     }));
   }
 
+  function handleUpdateNodeConfig(nodeId: string, rawConfig: string) {
+    let parsedConfig: unknown;
+
+    try {
+      parsedConfig = JSON.parse(rawConfig);
+    } catch {
+      setErrorMessage("Node config must be valid JSON.");
+      return;
+    }
+
+    if (!isRecord(parsedConfig)) {
+      setErrorMessage("Node config must be a JSON object.");
+      return;
+    }
+
+    setErrorMessage(null);
+    updateWorkflowDraft((currentWorkflow) => ({
+      ...currentWorkflow,
+      updatedAt: new Date().toISOString(),
+      draftVersion: {
+        ...currentWorkflow.draftVersion,
+        graph: {
+          ...currentWorkflow.draftVersion.graph,
+          nodes: currentWorkflow.draftVersion.graph.nodes.map((node) =>
+            node.id === nodeId ? { ...node, config: parsedConfig } : node,
+          ),
+        },
+      },
+    }));
+  }
+
   function handleRemoveNode(nodeId: string) {
     updateWorkflowDraft((currentWorkflow) => ({
       ...currentWorkflow,
@@ -660,6 +705,27 @@ export function useForgeApp() {
     }));
   }
 
+  async function handleCompileDraft() {
+    if (!token || !selectedProjectId || !workflowDraft) {
+      return;
+    }
+
+    setIsCompilingDraft(true);
+    setErrorMessage(null);
+
+    try {
+      const payload = await request<{ compilation: WorkflowCompilationResult }>(
+        `/projects/${selectedProjectId}/workflows/${workflowDraft.id}/compile`,
+        { method: "POST" },
+      );
+      setCompilationResult(payload.compilation);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsCompilingDraft(false);
+    }
+  }
+
   async function handleSignOut() {
     if (token) {
       await request("/auth/sign-out", { method: "POST" }).catch(() => null);
@@ -670,9 +736,11 @@ export function useForgeApp() {
   return {
     auditLogs,
     autosaveState,
+    compilationResult,
     errorMessage,
     handleAddEdge,
     handleAddNode,
+    handleCompileDraft,
     handleCreateProject,
     handleCreateWorkflow,
     handleCreateWorkspace,
@@ -680,10 +748,12 @@ export function useForgeApp() {
     handleRemoveNode,
     handleSelectWorkflow,
     handleSignOut,
+    handleUpdateNodeConfig,
     handleUpdateNodeLabel,
     handleWorkflowDescriptionChange,
     handleWorkflowNameChange,
     isBusy,
+    isCompilingDraft,
     isLoadingSession: Boolean(token && !user),
     isSavingDraft,
     nodeDefinitions,

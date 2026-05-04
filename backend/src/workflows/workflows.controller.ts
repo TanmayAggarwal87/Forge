@@ -51,6 +51,19 @@ export class WorkflowsController {
     );
   }
 
+  @Post(':workflowId/compile')
+  compileDraft(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+  ) {
+    return this.workflowsService.compileDraft(
+      projectId,
+      workflowId,
+      request.user.id,
+    );
+  }
+
   @Put(':workflowId/draft')
   saveDraft(
     @Req() request: AuthenticatedRequest,
