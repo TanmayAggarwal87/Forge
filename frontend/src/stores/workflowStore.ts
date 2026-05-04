@@ -1,6 +1,6 @@
 "use client";
 
-import type { OnEdgesChange, OnNodesChange, Viewport } from "@xyflow/react";
+import type { Connection, OnEdgesChange, OnNodesChange, Viewport } from "@xyflow/react";
 import {
   addEdge,
   applyEdgeChanges,
@@ -29,7 +29,7 @@ type WorkflowStore = {
   setNodes: (workspaceId: string, nodes: WorkflowNode[], options?: { pushHistory?: boolean }) => void;
   setEdges: (workspaceId: string, edges: WorkflowEdge[], options?: { pushHistory?: boolean }) => void;
   addConnection: (workspaceId: string, edge: WorkflowEdge) => void;
-  reconnectConnection: (workspaceId: string, oldEdge: WorkflowEdge, newConnection: Partial<WorkflowEdge>) => void;
+  reconnectConnection: (workspaceId: string, oldEdge: WorkflowEdge, newConnection: Connection) => void;
   updateNodeData: (workspaceId: string, nodeId: string, updater: (node: WorkflowNode) => WorkflowNode) => void;
   removeSelectedNodes: (workspaceId: string) => void;
   saveWorkflow: (workspaceId: string) => void;

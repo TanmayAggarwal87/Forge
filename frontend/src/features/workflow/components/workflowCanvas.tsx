@@ -10,6 +10,7 @@ import {
   Controls,
   MiniMap,
   Panel,
+  PanOnScrollMode,
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
@@ -17,11 +18,12 @@ import {
   useNodesState,
   useReactFlow,
   type Connection,
-  type EdgeChange,
+  type OnEdgesChange,
   type NodeMouseHandler,
-  type NodeChange,
   type NodeTypes,
+  type OnNodesChange,
   type OnMove,
+  type OnReconnect,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { CanvasToolbar } from "@/features/workflow/components/canvasToolbar";
@@ -32,6 +34,7 @@ import { useWorkflowStore } from "@/stores/workflowStore";
 import type {
   WorkflowDocument,
   WorkflowEdge,
+  WorkflowNode as WorkflowCanvasNode,
   WorkflowNodeType,
 } from "@/features/workflow/types";
 
@@ -54,11 +57,12 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
 
 function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const reactFlow = useReactFlow();
-  const flowViewport = useMemo(() => workflow.viewport ?? defaultViewport, [workflow.viewport]);
-  const [currentZoom, setCurrentZoom] = useState(() => flowViewport.zoom ?? 1);
-  const [nodes, setNodes, onNodesChange] = useNodesState(workflow.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(workflow.edges);
+  const reactFlow = useReactFlow<WorkflowCanvasNode, WorkflowEdge>();
+  // Stable initial viewport — only read once on mount, never re-derived
+  const initialViewport = useRef(workflow.viewport ?? defaultViewport);
+  const [currentZoom, setCurrentZoom] = useState(() => initialViewport.current.zoom ?? 1);
+  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowCanvasNode>(workflow.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowEdge>(workflow.edges);
 
   const syncSelection = useUiStore((state) => state.syncSelection);
   const setSelectedNodeId = useUiStore((state) => state.setSelectedNodeId);
@@ -70,10 +74,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   const persistEdges = useWorkflowStore((state) => state.setEdges);
   const setViewport = useWorkflowStore((state) => state.setViewport);
 
-  useEffect(() => {
-    reactFlow.setViewport(flowViewport, { duration: 0 });
-  }, [flowViewport, reactFlow]);
-
+  // Sync nodes/edges from external workflow changes only
   useEffect(() => {
     setNodes(workflow.nodes);
   }, [setNodes, workflow.nodes]);
@@ -81,6 +82,12 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   useEffect(() => {
     setEdges(workflow.edges);
   }, [setEdges, workflow.edges]);
+
+  // NOTE: The viewport useEffect that called reactFlow.setViewport on every
+  // workflow.viewport change has been intentionally removed. It created a
+  // feedback loop: scroll → onMoveEnd → store update → flowViewport change
+  // → setViewport call → canvas jitter. The viewport is set once via
+  // defaultViewport on mount; persistence happens via onMoveEnd only.
 
   const handleConnect = (connection: Connection) => {
     const nextEdge: WorkflowEdge = {
@@ -114,11 +121,12 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   };
 
   const handleMoveEnd: OnMove = (_, viewport) => {
+    // Persist to store/DB but do NOT call reactFlow.setViewport here
     setViewport(workspaceId, viewport);
-    setCurrentZoom(viewport.zoom);
+    setCurrentZoom((zoom) => (zoom === viewport.zoom ? zoom : viewport.zoom));
   };
 
-  const handleNodeDragStop: NodeMouseHandler = (_, node) => {
+  const handleNodeDragStop: NodeMouseHandler<WorkflowCanvasNode> = (_, node) => {
     const nextNodes = nodes.map((candidate) =>
       candidate.id === node.id ? { ...candidate, position: node.position } : candidate,
     );
@@ -126,7 +134,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
     persistNodes(workspaceId, nextNodes);
   };
 
-  const handleNodesChange = (changes: NodeChange[]) => {
+  const handleNodesChange: OnNodesChange<WorkflowCanvasNode> = (changes) => {
     onNodesChange(changes);
 
     const shouldPersist = changes.some((change) =>
@@ -141,7 +149,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
     persistNodes(workspaceId, nextNodes);
   };
 
-  const handleEdgesChange = (changes: EdgeChange[]) => {
+  const handleEdgesChange: OnEdgesChange<WorkflowEdge> = (changes) => {
     onEdgesChange(changes);
 
     const shouldPersist = changes.some((change) =>
@@ -156,30 +164,45 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
     persistEdges(workspaceId, nextEdges);
   };
 
+  const handleReconnect: OnReconnect<WorkflowEdge> = (oldEdge, newConnection) => {
+    const nextEdges = edges.map((edge) =>
+      edge.id === oldEdge.id
+        ? {
+            ...edge,
+            ...newConnection,
+          }
+        : edge,
+    );
+    setEdges(nextEdges);
+    reconnectConnection(workspaceId, oldEdge, newConnection);
+  };
+
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
 
   return (
     <div
       ref={containerRef}
-      className="relative h-full bg-[#fbfbfc]"
+      className="relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-[#fbfbfc]"
       onDragOver={(event) => event.preventDefault()}
+      onWheel={(e) => e.stopPropagation()}
       onDrop={handleDropNode}
     >
-      <ReactFlow
+      <ReactFlow<WorkflowCanvasNode, WorkflowEdge>
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        defaultViewport={defaultViewport}
+        defaultViewport={initialViewport.current}
         fitView={false}
         minZoom={0.35}
         maxZoom={2}
         snapToGrid
         snapGrid={[24, 24]}
         selectionMode={SelectionMode.Partial}
-        panOnScroll={false}
+        panOnScroll
+        panOnScrollMode={PanOnScrollMode.Free}
+        panOnScrollSpeed={0.5}
         panOnDrag={[1, 2]}
-        zoomOnScroll={true}
-        preventScrolling={false}
+        zoomOnScroll={false}
         selectionOnDrag
         deleteKeyCode={["Backspace", "Delete"]}
         multiSelectionKeyCode={["Meta", "Control"]}
@@ -190,22 +213,10 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
         onSelectionChange={({ nodes, edges }) => syncSelection(nodes, edges)}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={() => setSelectedNodeId(null)}
-        onMove={(_, viewport) => setCurrentZoom(viewport.zoom)}
         onMoveEnd={handleMoveEnd}
-        onReconnect={(oldEdge, newConnection) => {
-          const nextEdges = edges.map((edge) =>
-            edge.id === oldEdge.id
-              ? {
-                  ...edge,
-                  ...newConnection,
-                }
-              : edge,
-          );
-          setEdges(nextEdges);
-          reconnectConnection(workspaceId, oldEdge, newConnection);
-        }}
+        onReconnect={handleReconnect}
         onNodesDelete={() => setSelectedNodeId(null)}
-        className="workflow-canvas"
+        className="workflow-canvas h-full w-full"
       >
         <Background gap={24} size={1} color="#e2e8f0" />
         <MiniMap
