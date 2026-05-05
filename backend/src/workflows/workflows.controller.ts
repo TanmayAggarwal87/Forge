@@ -10,12 +10,16 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../common/request-context';
+import { WorkflowExecutionService } from './workflow-execution.service';
 import { WorkflowsService } from './workflows.service';
 
 @Controller('projects/:projectId/workflows')
 @UseGuards(AuthGuard)
 export class WorkflowsController {
-  constructor(private readonly workflowsService: WorkflowsService) {}
+  constructor(
+    private readonly workflowsService: WorkflowsService,
+    private readonly executionService: WorkflowExecutionService,
+  ) {}
 
   @Get()
   listWorkflows(
@@ -60,6 +64,62 @@ export class WorkflowsController {
     return this.workflowsService.compileDraft(
       projectId,
       workflowId,
+      request.user.id,
+    );
+  }
+
+  @Post(':workflowId/publish')
+  publishDraft(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+  ) {
+    return this.workflowsService.publishDraft(
+      projectId,
+      workflowId,
+      request.user.id,
+    );
+  }
+
+  @Post(':workflowId/executions')
+  executeWorkflow(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.executionService.executePublishedWorkflow(
+      projectId,
+      workflowId,
+      request.user.id,
+      body,
+    );
+  }
+
+  @Get(':workflowId/executions')
+  listExecutions(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+  ) {
+    return this.executionService.listExecutions(
+      projectId,
+      workflowId,
+      request.user.id,
+    );
+  }
+
+  @Get(':workflowId/executions/:executionId')
+  getExecution(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+    @Param('executionId') executionId: string,
+  ) {
+    return this.executionService.getExecution(
+      projectId,
+      workflowId,
+      executionId,
       request.user.id,
     );
   }

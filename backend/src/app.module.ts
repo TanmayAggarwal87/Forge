@@ -10,6 +10,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller';
 import { WorkspacesService } from './workspaces/workspaces.service';
 import { InMemoryStoreService } from './identity/in-memory-store.service';
 import { NodeRegistryController } from './workflows/node-registry.controller';
+import { WorkflowExecutionService } from './workflows/workflow-execution.service';
 import { WorkflowsController } from './workflows/workflows.controller';
 import { WorkflowsService } from './workflows/workflows.service';
 
@@ -29,6 +30,7 @@ import { WorkflowsService } from './workflows/workflows.service';
     AuthService,
     InMemoryStoreService,
     ProjectsService,
+    WorkflowExecutionService,
     WorkflowsService,
     WorkspacesService,
   ],

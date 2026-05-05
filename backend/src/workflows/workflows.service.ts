@@ -107,6 +107,36 @@ export class WorkflowsService {
     };
   }
 
+  publishDraft(projectId: string, workflowId: string, userId: string) {
+    const workflow = this.store.getWorkflowDraftForUser(
+      projectId,
+      workflowId,
+      userId,
+    );
+    const compilation = compileWorkflowGraph(
+      workflow.draftVersion.graph,
+      this.registryByType,
+    );
+
+    if (!compilation.isValid || !compilation.ir) {
+      throw new BadRequestException({
+        message:
+          'Workflow draft cannot be published until compile errors are fixed.',
+        issues: compilation.issues,
+      });
+    }
+
+    return {
+      workflow: this.store.publishWorkflow({
+        projectId,
+        workflowId,
+        actorUserId: userId,
+        compiledIr: compilation.ir,
+      }),
+      compilation,
+    };
+  }
+
   saveDraft(
     projectId: string,
     workflowId: string,

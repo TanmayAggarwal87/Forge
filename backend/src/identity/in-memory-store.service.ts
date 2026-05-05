@@ -14,7 +14,11 @@ import {
   SessionUser,
   User,
   Workflow,
+  WorkflowExecution,
+  WorkflowExecutionLog,
+  WorkflowExecutionStep,
   WorkflowGraph,
+  WorkflowIntermediateRepresentation,
   WorkflowValidationResult,
   WorkflowVersion,
   Workspace,
@@ -53,6 +57,24 @@ type SaveWorkflowDraftInput = {
   actorUserId: string;
 };
 
+type PublishWorkflowInput = {
+  projectId: string;
+  workflowId: string;
+  compiledIr: WorkflowIntermediateRepresentation;
+  actorUserId: string;
+};
+
+type CreateExecutionInput = {
+  projectId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  status: WorkflowExecution['status'];
+  triggerType: WorkflowExecution['triggerType'];
+  traceId: string;
+  idempotencyKey?: string | null;
+  input: Record<string, unknown>;
+};
+
 type DatabaseShape = {
   users: User[];
   sessions: Session[];
@@ -61,6 +83,9 @@ type DatabaseShape = {
   projects: Project[];
   workflows: Workflow[];
   workflowVersions: WorkflowVersion[];
+  workflowExecutions: WorkflowExecution[];
+  workflowExecutionSteps: WorkflowExecutionStep[];
+  workflowExecutionLogs: WorkflowExecutionLog[];
   auditLogs: AuditLog[];
 };
 
@@ -74,6 +99,12 @@ export class InMemoryStoreService {
   private readonly projects = new Map<string, Project>();
   private readonly workflows = new Map<string, Workflow>();
   private readonly workflowVersions = new Map<string, WorkflowVersion>();
+  private readonly workflowExecutions = new Map<string, WorkflowExecution>();
+  private readonly workflowExecutionSteps = new Map<
+    string,
+    WorkflowExecutionStep
+  >();
+  private readonly workflowExecutionLogs: WorkflowExecutionLog[] = [];
   private readonly auditLogs: AuditLog[] = [];
   private readonly databasePath =
     process.env.FORGE_DATABASE_PATH ??
@@ -294,9 +325,11 @@ export class InMemoryStoreService {
       status: 'draft',
       graph: input.graph,
       validation: input.validation,
+      compiledIr: null,
       createdByUserId: input.actorUserId,
       createdAt: now,
       updatedAt: now,
+      publishedAt: null,
     };
 
     const workflow: Workflow = {
@@ -433,6 +466,254 @@ export class InMemoryStoreService {
     };
   }
 
+  publishWorkflow(input: PublishWorkflowInput): Workflow & {
+    publishedVersion: WorkflowVersion;
+  } {
+    const workflow = this.getWorkflowDraftForUser(
+      input.projectId,
+      input.workflowId,
+      input.actorUserId,
+    );
+    const project = this.getProjectForUser(input.projectId, input.actorUserId);
+    const now = new Date().toISOString();
+    const nextVersionNumber =
+      Math.max(
+        0,
+        ...Array.from(this.workflowVersions.values())
+          .filter((version) => version.workflowId === workflow.id)
+          .map((version) => version.versionNumber),
+      ) + 1;
+
+    const publishedVersion: WorkflowVersion = {
+      id: randomUUID(),
+      workflowId: workflow.id,
+      projectId: input.projectId,
+      versionNumber: nextVersionNumber,
+      status: 'published',
+      graph: this.cloneJson(workflow.draftVersion.graph),
+      validation: this.cloneJson(workflow.draftVersion.validation),
+      compiledIr: this.cloneJson(input.compiledIr),
+      createdByUserId: input.actorUserId,
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: now,
+    };
+
+    const updatedWorkflow: Workflow = {
+      ...workflow,
+      status: 'published',
+      publishedVersionId: publishedVersion.id,
+      updatedAt: now,
+    };
+
+    this.workflowVersions.set(publishedVersion.id, publishedVersion);
+    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.recordAudit({
+      actorUserId: input.actorUserId,
+      workspaceId: project.workspaceId,
+      action: 'workflow.published',
+      targetType: 'workflow',
+      targetId: workflow.id,
+      metadata: {
+        workflowVersionId: publishedVersion.id,
+        versionNumber: publishedVersion.versionNumber,
+        graphHash: input.compiledIr.graphHash,
+      },
+    });
+    this.saveDatabase();
+
+    return {
+      ...updatedWorkflow,
+      publishedVersion,
+    };
+  }
+
+  getPublishedWorkflowForUser(
+    projectId: string,
+    workflowId: string,
+    userId: string,
+  ): Workflow & { publishedVersion: WorkflowVersion } {
+    this.getProjectForUser(projectId, userId);
+
+    const workflow = this.workflows.get(workflowId);
+    if (!workflow || workflow.projectId !== projectId) {
+      throw new NotFoundException('Workflow was not found.');
+    }
+
+    if (!workflow.publishedVersionId) {
+      throw new NotFoundException('Workflow has no published version.');
+    }
+
+    const publishedVersion = this.workflowVersions.get(
+      workflow.publishedVersionId,
+    );
+    if (!publishedVersion || publishedVersion.status !== 'published') {
+      throw new NotFoundException('Published workflow version was not found.');
+    }
+
+    return {
+      ...workflow,
+      publishedVersion,
+    };
+  }
+
+  createWorkflowExecution(input: CreateExecutionInput): WorkflowExecution {
+    const now = new Date().toISOString();
+    const execution: WorkflowExecution = {
+      id: randomUUID(),
+      projectId: input.projectId,
+      workflowId: input.workflowId,
+      workflowVersionId: input.workflowVersionId,
+      status: input.status,
+      triggerType: input.triggerType,
+      traceId: input.traceId,
+      idempotencyKey: input.idempotencyKey ?? null,
+      input: input.input,
+      output: null,
+      error: null,
+      createdAt: now,
+      startedAt: null,
+      completedAt: null,
+      updatedAt: now,
+    };
+
+    this.workflowExecutions.set(execution.id, execution);
+    this.saveDatabase();
+    return execution;
+  }
+
+  findWorkflowExecutionByIdempotencyKey(
+    projectId: string,
+    workflowId: string,
+    workflowVersionId: string,
+    idempotencyKey: string,
+  ): WorkflowExecution | null {
+    return (
+      Array.from(this.workflowExecutions.values()).find(
+        (execution) =>
+          execution.projectId === projectId &&
+          execution.workflowId === workflowId &&
+          execution.workflowVersionId === workflowVersionId &&
+          execution.idempotencyKey === idempotencyKey,
+      ) ?? null
+    );
+  }
+
+  updateWorkflowExecution(
+    executionId: string,
+    patch: Partial<
+      Pick<
+        WorkflowExecution,
+        'status' | 'output' | 'error' | 'startedAt' | 'completedAt'
+      >
+    >,
+  ): WorkflowExecution {
+    const execution = this.workflowExecutions.get(executionId);
+    if (!execution) {
+      throw new NotFoundException('Workflow execution was not found.');
+    }
+
+    const updatedExecution: WorkflowExecution = {
+      ...execution,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.workflowExecutions.set(executionId, updatedExecution);
+    this.saveDatabase();
+    return updatedExecution;
+  }
+
+  upsertWorkflowExecutionStep(
+    step: WorkflowExecutionStep,
+  ): WorkflowExecutionStep {
+    this.workflowExecutionSteps.set(step.id, step);
+    this.saveDatabase();
+    return step;
+  }
+
+  appendWorkflowExecutionLog(log: WorkflowExecutionLog): WorkflowExecutionLog {
+    this.workflowExecutionLogs.push(log);
+    this.saveDatabase();
+    return log;
+  }
+
+  getWorkflowExecutionForUser(
+    projectId: string,
+    workflowId: string,
+    executionId: string,
+    userId: string,
+  ): WorkflowExecution & {
+    steps: WorkflowExecutionStep[];
+    logs: WorkflowExecutionLog[];
+  } {
+    this.getWorkflowDraftForUser(projectId, workflowId, userId);
+
+    const execution = this.workflowExecutions.get(executionId);
+    if (
+      !execution ||
+      execution.projectId !== projectId ||
+      execution.workflowId !== workflowId
+    ) {
+      throw new NotFoundException('Workflow execution was not found.');
+    }
+
+    return {
+      ...execution,
+      steps: this.listWorkflowExecutionSteps(execution.id),
+      logs: this.listWorkflowExecutionLogs(execution.id),
+    };
+  }
+
+  getWorkflowExecutionById(executionId: string): WorkflowExecution {
+    const execution = this.workflowExecutions.get(executionId);
+    if (!execution) {
+      throw new NotFoundException('Workflow execution was not found.');
+    }
+
+    return execution;
+  }
+
+  getWorkflowVersionById(workflowVersionId: string): WorkflowVersion {
+    const version = this.workflowVersions.get(workflowVersionId);
+    if (!version) {
+      throw new NotFoundException('Workflow version was not found.');
+    }
+
+    return version;
+  }
+
+  listWorkflowExecutionsForUser(
+    projectId: string,
+    workflowId: string,
+    userId: string,
+  ): WorkflowExecution[] {
+    this.getWorkflowDraftForUser(projectId, workflowId, userId);
+
+    return Array.from(this.workflowExecutions.values())
+      .filter(
+        (execution) =>
+          execution.projectId === projectId &&
+          execution.workflowId === workflowId,
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  listWorkflowExecutionSteps(executionId: string): WorkflowExecutionStep[] {
+    return Array.from(this.workflowExecutionSteps.values())
+      .filter((step) => step.executionId === executionId)
+      .sort(
+        (left, right) =>
+          left.startedAt?.localeCompare(right.startedAt ?? '') ?? 0,
+      );
+  }
+
+  listWorkflowExecutionLogs(executionId: string): WorkflowExecutionLog[] {
+    return this.workflowExecutionLogs.filter(
+      (log) => log.executionId === executionId,
+    );
+  }
+
   listAuditLogs(workspaceId: string, userId: string): AuditLog[] {
     this.getWorkspaceForUser(workspaceId, userId);
 
@@ -545,8 +826,22 @@ export class InMemoryStoreService {
     }
 
     for (const workflowVersion of database.workflowVersions ?? []) {
-      this.workflowVersions.set(workflowVersion.id, workflowVersion);
+      this.workflowVersions.set(workflowVersion.id, {
+        ...workflowVersion,
+        compiledIr: workflowVersion.compiledIr ?? null,
+        publishedAt: workflowVersion.publishedAt ?? null,
+      });
     }
+
+    for (const execution of database.workflowExecutions ?? []) {
+      this.workflowExecutions.set(execution.id, execution);
+    }
+
+    for (const step of database.workflowExecutionSteps ?? []) {
+      this.workflowExecutionSteps.set(step.id, step);
+    }
+
+    this.workflowExecutionLogs.push(...(database.workflowExecutionLogs ?? []));
 
     this.auditLogs.push(...(database.auditLogs ?? []));
   }
@@ -561,9 +856,16 @@ export class InMemoryStoreService {
       projects: Array.from(this.projects.values()),
       workflows: Array.from(this.workflows.values()),
       workflowVersions: Array.from(this.workflowVersions.values()),
+      workflowExecutions: Array.from(this.workflowExecutions.values()),
+      workflowExecutionSteps: Array.from(this.workflowExecutionSteps.values()),
+      workflowExecutionLogs: this.workflowExecutionLogs,
       auditLogs: this.auditLogs,
     };
 
     writeFileSync(this.databasePath, JSON.stringify(database, null, 2));
+  }
+
+  private cloneJson<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
   }
 }

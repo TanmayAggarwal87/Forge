@@ -157,9 +157,11 @@ export type WorkflowVersion = {
   status: WorkflowVersionStatus;
   graph: WorkflowGraph;
   validation: WorkflowValidationResult;
+  compiledIr: WorkflowIntermediateRepresentation | null;
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
+  publishedAt: string | null;
 };
 
 export type NodeCategory =
@@ -182,4 +184,79 @@ export type NodeDefinition = {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   configSchema: Record<string, unknown>;
+};
+
+export type WorkflowExecutionStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'timed_out'
+  | 'dead_lettered';
+
+export type WorkflowExecutionTriggerType = 'http' | 'manual' | 'schedule';
+
+export type WorkflowExecution = {
+  id: string;
+  projectId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  status: WorkflowExecutionStatus;
+  triggerType: WorkflowExecutionTriggerType;
+  traceId: string;
+  idempotencyKey: string | null;
+  input: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  error: WorkflowExecutionError | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+};
+
+export type WorkflowExecutionStepStatus =
+  | 'pending'
+  | 'running'
+  | 'retrying'
+  | 'succeeded'
+  | 'failed'
+  | 'skipped'
+  | 'timed_out';
+
+export type WorkflowExecutionStep = {
+  id: string;
+  executionId: string;
+  workflowVersionId: string;
+  nodeId: string;
+  nodeType: string;
+  label: string;
+  status: WorkflowExecutionStepStatus;
+  attempt: number;
+  maxAttempts: number;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  error: WorkflowExecutionError | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  updatedAt: string;
+};
+
+export type WorkflowExecutionLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export type WorkflowExecutionLog = {
+  id: string;
+  executionId: string;
+  stepId: string | null;
+  traceId: string;
+  level: WorkflowExecutionLogLevel;
+  message: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type WorkflowExecutionError = {
+  code: string;
+  message: string;
+  retryable: boolean;
 };
