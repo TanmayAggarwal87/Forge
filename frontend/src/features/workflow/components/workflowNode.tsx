@@ -14,14 +14,13 @@ export const WorkflowNode = memo(function WorkflowNode({
 }: NodeProps<WorkflowCanvasNode>) {
   const definition = nodeDefinitionsByType[data.type];
   const setConfigNodeId = useUiStore((state) => state.setConfigNodeId);
+  const connectionStyles = getConnectionStyles(data.connectionState, selected);
 
   return (
     <div
-      className={`min-w-56 rounded-lg border bg-white shadow-sm transition ${
-        selected ? "border-slate-950 shadow-[0_0_0_1px_rgba(15,23,42,0.12)]" : "border-slate-300"
-      }`}
+      className={`min-w-56 rounded-lg border bg-white shadow-sm transition ${connectionStyles.container}`}
     >
-      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-slate-600" />
+      <Handle type="target" position={Position.Left} className={`!h-3 !w-3 !border-2 !border-white ${connectionStyles.targetHandle}`} />
       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -46,7 +45,44 @@ export const WorkflowNode = memo(function WorkflowNode({
       <div className="px-4 py-3">
         <p className="text-xs leading-5 text-slate-600">{definition.description}</p>
       </div>
-      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-slate-600" />
+      <Handle type="source" position={Position.Right} className={`!h-3 !w-3 !border-2 !border-white ${connectionStyles.sourceHandle}`} />
     </div>
   );
 });
+
+function getConnectionStyles(
+  state: WorkflowCanvasNode["data"]["connectionState"],
+  selected: boolean,
+) {
+  if (state === "source") {
+    return {
+      container: "border-orange-500 shadow-[0_0_0_1px_rgba(249,115,22,0.18)]",
+      sourceHandle: "!bg-orange-600",
+      targetHandle: "!bg-slate-600",
+    };
+  }
+
+  if (state === "validTarget") {
+    return {
+      container: "border-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]",
+      sourceHandle: "!bg-slate-600",
+      targetHandle: "!bg-emerald-600",
+    };
+  }
+
+  if (state === "invalidTarget") {
+    return {
+      container: "border-slate-200 opacity-45 grayscale",
+      sourceHandle: "!bg-slate-400",
+      targetHandle: "!bg-slate-400",
+    };
+  }
+
+  return {
+    container: selected
+      ? "border-slate-950 shadow-[0_0_0_1px_rgba(15,23,42,0.12)]"
+      : "border-slate-300",
+    sourceHandle: "!bg-slate-600",
+    targetHandle: "!bg-slate-600",
+  };
+}

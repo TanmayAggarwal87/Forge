@@ -44,6 +44,7 @@ export type WorkflowNodeData = {
   category: string;
   type: WorkflowNodeType;
   config: Record<string, string | number>;
+  connectionState?: "source" | "validTarget" | "invalidTarget";
 };
 
 export type WorkflowNode = Node<WorkflowNodeData, "workflowNode">;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addEdge,
   applyEdgeChanges,
@@ -18,6 +18,9 @@ import {
   useNodesState,
   useReactFlow,
   type Connection,
+  type IsValidConnection,
+  type OnConnectEnd,
+  type OnConnectStart,
   type OnEdgesChange,
   type NodeMouseHandler,
   type NodeTypes,
@@ -27,6 +30,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { CanvasToolbar } from "@/features/workflow/components/canvasToolbar";
+import {
+  canConnectNodeTypes,
+  validateNodeConnection,
+  type ConnectionValidationResult,
+} from "@/features/workflow/connectionRules";
 import { WorkflowNode } from "@/features/workflow/components/workflowNode";
 import { buildNode, defaultViewport } from "@/features/workflow/utils";
 import { useUiStore } from "@/stores/uiStore";
@@ -63,6 +71,9 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   const [currentZoom, setCurrentZoom] = useState(() => initialViewport.zoom ?? 1);
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowCanvasNode>(workflow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<WorkflowEdge>(workflow.edges);
+  const [connectionSourceNodeId, setConnectionSourceNodeId] = useState<string | null>(null);
+  const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
+  const lastConnectionFeedbackRef = useRef<string | null>(null);
 
   const syncSelection = useUiStore((state) => state.syncSelection);
   const setSelectedNodeId = useUiStore((state) => state.setSelectedNodeId);
@@ -77,8 +88,8 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
 
   // Sync nodes/edges from external workflow changes only
   useEffect(() => {
-    setNodes(workflow.nodes);
-  }, [setNodes, workflow.nodes]);
+    setNodes(decorateNodesForConnection(workflow.nodes, connectionSourceNodeId));
+  }, [connectionSourceNodeId, setNodes, workflow.nodes]);
 
   useEffect(() => {
     setEdges(workflow.edges);
@@ -90,12 +101,109 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   // → setViewport call → canvas jitter. The viewport is set once via
   // defaultViewport on mount; persistence happens via onMoveEnd only.
 
+  useEffect(() => {
+    if (!connectionFeedback) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      lastConnectionFeedbackRef.current = null;
+      setConnectionFeedback(null);
+    }, 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [connectionFeedback]);
+
+  const showConnectionFeedback = useCallback((message: string) => {
+    if (lastConnectionFeedbackRef.current === message) {
+      return;
+    }
+
+    lastConnectionFeedbackRef.current = message;
+    setConnectionFeedback(message);
+  }, []);
+
+  const getConnectionValidation = useCallback(
+    (connection: Pick<Connection, "source" | "target">): ConnectionValidationResult => {
+      if (!connection.source || !connection.target) {
+        return {
+          isValid: false,
+          reason: null,
+        };
+      }
+
+      if (connection.source === connection.target) {
+        return {
+          isValid: false,
+          reason: "A node cannot connect to itself.",
+        };
+      }
+
+      const sourceNode = nodes.find((node) => node.id === connection.source);
+      const targetNode = nodes.find((node) => node.id === connection.target);
+
+      if (!sourceNode || !targetNode) {
+        return {
+          isValid: false,
+          reason: "Connection target is unavailable.",
+        };
+      }
+
+      return validateNodeConnection(sourceNode.data.type, targetNode.data.type);
+    },
+    [nodes],
+  );
+
+  const isValidConnection: IsValidConnection<WorkflowEdge> = useCallback(
+    (connection) => {
+      const validation = getConnectionValidation(connection);
+
+      if (!validation.isValid && validation.reason) {
+        showConnectionFeedback(validation.reason);
+      }
+
+      return validation.isValid;
+    },
+    [getConnectionValidation, showConnectionFeedback],
+  );
+
+  const handleConnectStart: OnConnectStart = useCallback(
+    (_, params) => {
+      const sourceNodeId = params.handleType === "source" ? params.nodeId : null;
+      setConnectionSourceNodeId(sourceNodeId);
+      setNodes((currentNodes) => decorateNodesForConnection(currentNodes, sourceNodeId));
+    },
+    [setNodes],
+  );
+
+  const handleConnectEnd: OnConnectEnd = useCallback(
+    () => {
+      setConnectionSourceNodeId(null);
+      setNodes((currentNodes) => stripNodeConnectionStates(currentNodes));
+    },
+    [setNodes],
+  );
+
   const handleConnect = (connection: Connection) => {
+    const validation = getConnectionValidation(connection);
+
+    if (!validation.isValid) {
+      if (validation.reason) {
+        showConnectionFeedback(validation.reason);
+      }
+
+      return;
+    }
+
     const nextEdge: WorkflowEdge = {
       ...connection,
       id: crypto.randomUUID(),
       type: "smoothstep",
       animated: false,
+      style: {
+        stroke: "#ea580c",
+        strokeWidth: 2,
+      },
     };
 
     setEdges((currentEdges) => addEdge(nextEdge, currentEdges));
@@ -115,7 +223,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
       y: event.clientY,
     });
 
-    const nextNodes = [...nodes, buildNode(nodeType, position)];
+    const nextNodes = [...stripNodeConnectionStates(nodes), buildNode(nodeType, position)];
     setNodes(nextNodes);
     persistNodes(workspaceId, nextNodes);
     setDragNodeType(null);
@@ -132,7 +240,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
       candidate.id === node.id ? { ...candidate, position: node.position } : candidate,
     );
     setNodes(nextNodes);
-    persistNodes(workspaceId, nextNodes);
+    persistNodes(workspaceId, stripNodeConnectionStates(nextNodes));
   };
 
   const handleNodesChange: OnNodesChange<WorkflowCanvasNode> = (changes) => {
@@ -146,7 +254,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
       return;
     }
 
-    const nextNodes = applyNodeChanges(changes, nodes);
+    const nextNodes = stripNodeConnectionStates(applyNodeChanges(changes, nodes));
     persistNodes(workspaceId, nextNodes);
   };
 
@@ -166,6 +274,16 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   };
 
   const handleReconnect: OnReconnect<WorkflowEdge> = (oldEdge, newConnection) => {
+    const validation = getConnectionValidation(newConnection);
+
+    if (!validation.isValid) {
+      if (validation.reason) {
+        showConnectionFeedback(validation.reason);
+      }
+
+      return;
+    }
+
     const nextEdges = edges.map((edge) =>
       edge.id === oldEdge.id
         ? {
@@ -207,10 +325,13 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
         selectionOnDrag
         deleteKeyCode={["Backspace", "Delete"]}
         multiSelectionKeyCode={["Meta", "Control"]}
-        connectionMode={ConnectionMode.Loose}
+        connectionMode={ConnectionMode.Strict}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
+        onConnectStart={handleConnectStart}
+        onConnectEnd={handleConnectEnd}
+        isValidConnection={isValidConnection}
         onSelectionChange={({ nodes, edges }) => syncSelection(nodes, edges)}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={() => {
@@ -241,6 +362,13 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
               : "Drop a node here to start the workflow"}
           </div>
         </Panel>
+        {connectionFeedback ? (
+          <Panel position="bottom-center">
+            <div className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 shadow-sm">
+              {connectionFeedback}
+            </div>
+          </Panel>
+        ) : null}
 
         <CanvasToolbar
           zoomLabel={`${Math.round(currentZoom * 100)}%`}
@@ -261,4 +389,54 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
       ) : null}
     </div>
   );
+}
+
+function stripNodeConnectionStates(nodes: WorkflowCanvasNode[]): WorkflowCanvasNode[] {
+  return nodes.map((node) => {
+    if (!node.data.connectionState) {
+      return node;
+    }
+
+    const data = { ...node.data };
+    delete data.connectionState;
+
+    return {
+      ...node,
+      data,
+    };
+  });
+}
+
+function decorateNodesForConnection(
+  nodes: WorkflowCanvasNode[],
+  sourceNodeId: string | null,
+): WorkflowCanvasNode[] {
+  const cleanNodes = stripNodeConnectionStates(nodes);
+
+  if (!sourceNodeId) {
+    return cleanNodes;
+  }
+
+  const sourceNode = cleanNodes.find((node) => node.id === sourceNodeId);
+
+  if (!sourceNode) {
+    return cleanNodes;
+  }
+
+  return cleanNodes.map((node) => {
+    const connectionState =
+      node.id === sourceNodeId
+        ? "source"
+        : canConnectNodeTypes(sourceNode.data.type, node.data.type)
+          ? "validTarget"
+          : "invalidTarget";
+
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        connectionState,
+      },
+    };
+  });
 }
