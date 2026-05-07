@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../common/request-context';
+import type { ArtifactGenerationMode } from './workflow-code-generator';
 import { WorkflowPersistenceService } from './workflow-persistence.service';
 
 @Controller()
@@ -90,10 +91,12 @@ export class WorkflowPersistenceController {
   generateArtifacts(
     @Req() request: AuthenticatedRequest,
     @Param('workflowId') workflowId: string,
+    @Body() body: Record<string, unknown> | undefined,
   ) {
     return this.persistenceService.generateArtifacts(
       workflowId,
       request.user.id,
+      readArtifactGenerationMode(body?.mode),
     );
   }
 
@@ -109,4 +112,10 @@ export class WorkflowPersistenceController {
       request.user.id,
     );
   }
+}
+
+function readArtifactGenerationMode(value: unknown): ArtifactGenerationMode {
+  return value === 'workflow_definition'
+    ? 'workflow_definition'
+    : 'backend_module';
 }

@@ -159,11 +159,15 @@ export type GeneratedArtifactType =
   | 'endpoint_contract'
   | 'dto_schema'
   | 'sdk_stub'
-  | 'code_preview';
+  | 'code_preview'
+  | 'workflow_definition'
+  | 'backend_module';
 
 export type GeneratedArtifactContentType =
   | 'application/json'
-  | 'text/typescript';
+  | 'text/typescript'
+  | 'text/markdown'
+  | 'text/plain';
 
 export type GeneratedArtifact = {
   id: string;

@@ -1,10 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronRight, Download, FileCode2, Play } from "lucide-react";
+import {
+  Archive,
+  ChevronRight,
+  Download,
+  FileCode2,
+  FolderTree,
+  Play,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   generateBackendWorkflowArtifacts,
+  type BackendArtifactGenerationMode,
   type BackendGeneratedArtifact,
 } from "@/features/workflow/backendWorkflowApi";
 import { getErrorMessage } from "@/lib/apiClient";
@@ -25,10 +33,12 @@ export function ArtifactDrawer({
 }: ArtifactDrawerProps) {
   const [artifacts, setArtifacts] = useState<BackendGeneratedArtifact[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingMode, setGeneratingMode] =
+    useState<BackendArtifactGenerationMode | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
   );
+  const isGenerating = generatingMode !== null;
 
   const selectedArtifact = useMemo(() => {
     return (
@@ -38,28 +48,37 @@ export function ArtifactDrawer({
     );
   }, [artifacts, selectedArtifactId]);
 
-  async function handleGenerate() {
+  const fileTree = useMemo(() => buildFileTree(artifacts), [artifacts]);
+
+  async function handleGenerate(mode: BackendArtifactGenerationMode) {
     if (!backendWorkflowId || !token) {
       setErrorMessage("Save the workflow to the backend before generating artifacts.");
       return;
     }
 
-    setIsGenerating(true);
+    setGeneratingMode(mode);
     setErrorMessage(null);
 
     try {
-      const payload = await generateBackendWorkflowArtifacts(backendWorkflowId, token);
+      const payload = await generateBackendWorkflowArtifacts(
+        backendWorkflowId,
+        token,
+        mode,
+      );
       setArtifacts(payload.generatedArtifacts);
       setSelectedArtifactId(
-        payload.generatedArtifacts.find((artifact) => artifact.type === "openapi")
-          ?.id ??
+        payload.generatedArtifacts.find((artifact) =>
+          mode === "workflow_definition"
+            ? artifact.name === "workflow.definition.ts"
+            : artifact.name.endsWith(".module.ts"),
+        )?.id ??
           payload.generatedArtifacts[0]?.id ??
           null,
       );
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
-      setIsGenerating(false);
+      setGeneratingMode(null);
     }
   }
 
@@ -89,10 +108,38 @@ export function ArtifactDrawer({
       </div>
 
       <div className="grid gap-3 border-b border-slate-200 p-4">
-        <Button onClick={() => void handleGenerate()} disabled={isGenerating} className="h-10 rounded-md">
+        <Button
+          onClick={() => void handleGenerate("workflow_definition")}
+          disabled={isGenerating}
+          className="h-10 rounded-md"
+          variant="outline"
+        >
           <Play />
-          {isGenerating ? "Generating..." : "Generate artifacts"}
+          {generatingMode === "workflow_definition"
+            ? "Exporting..."
+            : "Export Workflow Definition"}
         </Button>
+        <Button
+          onClick={() => void handleGenerate("backend_module")}
+          disabled={isGenerating}
+          className="h-10 rounded-md"
+        >
+          <FileCode2 />
+          {generatingMode === "backend_module"
+            ? "Generating..."
+            : "Generate Backend Code"}
+        </Button>
+        {artifacts.length > 0 ? (
+          <Button
+            onClick={() => downloadArtifactsZip(artifacts)}
+            disabled={isGenerating}
+            className="h-9 rounded-md"
+            variant="outline"
+          >
+            <Archive className="size-4" />
+            Download ZIP
+          </Button>
+        ) : null}
         <div className="grid grid-cols-3 gap-2 text-xs">
           <Metric label="Nodes" value={workflow.nodes.length} />
           <Metric label="Edges" value={workflow.edges.length} />
@@ -111,6 +158,12 @@ export function ArtifactDrawer({
           <EmptyState />
         ) : (
           <div className="grid gap-4">
+            <FileTreePreview
+              tree={fileTree}
+              selectedArtifactId={selectedArtifact?.id ?? null}
+              onSelect={(artifactId) => setSelectedArtifactId(artifactId)}
+            />
+
             <div className="flex flex-wrap gap-2">
               {artifacts.map((artifact) => (
                 <ArtifactTab
@@ -164,6 +217,60 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+type FileTreeItem = {
+  id: string;
+  name: string;
+  depth: number;
+  type: "folder" | "file";
+  artifactId?: string;
+};
+
+function FileTreePreview({
+  tree,
+  selectedArtifactId,
+  onSelect,
+}: {
+  tree: FileTreeItem[];
+  selectedArtifactId: string | null;
+  onSelect: (artifactId: string) => void;
+}) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50">
+      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+        <FolderTree className="size-3.5" />
+        File tree
+      </div>
+      <div className="max-h-56 overflow-auto p-2">
+        {tree.map((item) =>
+          item.type === "folder" ? (
+            <div
+              key={item.id}
+              className="flex h-7 items-center rounded px-2 text-xs font-semibold text-slate-700"
+              style={{ paddingLeft: `${8 + item.depth * 14}px` }}
+            >
+              {item.name}
+            </div>
+          ) : (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => item.artifactId && onSelect(item.artifactId)}
+              className={`flex h-7 w-full items-center rounded px-2 text-left text-xs ${
+                item.artifactId === selectedArtifactId
+                  ? "bg-slate-950 text-white"
+                  : "text-slate-700 hover:bg-white"
+              }`}
+              style={{ paddingLeft: `${8 + item.depth * 14}px` }}
+            >
+              {item.name}
+            </button>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ArtifactTab({
   artifact,
   selected,
@@ -192,7 +299,17 @@ function downloadArtifact(artifact: BackendGeneratedArtifact) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = artifact.name;
+  anchor.download = getFileName(artifact.name);
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadArtifactsZip(artifacts: BackendGeneratedArtifact[]) {
+  const blob = createZipBlob(artifacts);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = getZipName(artifacts);
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -205,10 +322,209 @@ function EmptyState() {
           No artifacts generated yet
         </p>
         <p className="mt-2 text-xs leading-5 text-slate-500">
-          Use Generate artifacts to create an OpenAPI spec, endpoint contract,
-          DTO schema, SDK stub, and runtime preview from this canvas.
+          Export workflow metadata for inspection, or generate a NestJS module
+          from this canvas.
         </p>
       </div>
     </div>
   );
 }
+
+function buildFileTree(artifacts: BackendGeneratedArtifact[]): FileTreeItem[] {
+  const items: FileTreeItem[] = [];
+  const folderIds = new Set<string>();
+  const sortedArtifacts = [...artifacts].sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+
+  for (const artifact of sortedArtifacts) {
+    const parts = normalizeZipPath(artifact.name).split("/");
+    let folderPath = "";
+
+    parts.slice(0, -1).forEach((part, index) => {
+      folderPath = folderPath ? `${folderPath}/${part}` : part;
+
+      if (!folderIds.has(folderPath)) {
+        folderIds.add(folderPath);
+        items.push({
+          id: `folder:${folderPath}`,
+          name: part,
+          depth: index,
+          type: "folder",
+        });
+      }
+    });
+
+    items.push({
+      id: `file:${artifact.id}`,
+      name: parts.at(-1) ?? artifact.name,
+      depth: Math.max(parts.length - 1, 0),
+      type: "file",
+      artifactId: artifact.id,
+    });
+  }
+
+  return items;
+}
+
+function getFileName(path: string) {
+  return normalizeZipPath(path).split("/").at(-1) ?? path;
+}
+
+function getZipName(artifacts: BackendGeneratedArtifact[]) {
+  const firstPath = normalizeZipPath(artifacts[0]?.name ?? "forge-export");
+  const root = firstPath.split("/")[0] || "forge-export";
+
+  return `${root}.zip`;
+}
+
+function createZipBlob(artifacts: BackendGeneratedArtifact[]) {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  const entries: Array<{
+    nameBytes: Uint8Array;
+    data: Uint8Array;
+    crc: number;
+    offset: number;
+  }> = [];
+  let offset = 0;
+
+  for (const artifact of artifacts) {
+    const nameBytes = encoder.encode(normalizeZipPath(artifact.name));
+    const data = encoder.encode(artifact.content);
+    const crc = crc32(data);
+    const header = createLocalFileHeader(nameBytes, data, crc);
+
+    localParts.push(header, nameBytes, data);
+    entries.push({ nameBytes, data, crc, offset });
+    offset += header.length + nameBytes.length + data.length;
+  }
+
+  const centralDirectoryOffset = offset;
+
+  for (const entry of entries) {
+    const header = createCentralDirectoryHeader(entry);
+    centralParts.push(header, entry.nameBytes);
+    offset += header.length + entry.nameBytes.length;
+  }
+
+  const centralDirectorySize = offset - centralDirectoryOffset;
+  const endRecord = createEndOfCentralDirectoryRecord(
+    entries.length,
+    centralDirectorySize,
+    centralDirectoryOffset,
+  );
+
+  const blobParts = [...localParts, ...centralParts, endRecord].map(toBlobPart);
+
+  return new Blob(blobParts, {
+    type: "application/zip",
+  });
+}
+
+function createLocalFileHeader(
+  nameBytes: Uint8Array,
+  data: Uint8Array,
+  crc: number,
+) {
+  const header = new Uint8Array(30);
+  const view = new DataView(header.buffer);
+
+  view.setUint32(0, 0x04034b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 0x0800, true);
+  view.setUint16(8, 0, true);
+  view.setUint16(10, 0, true);
+  view.setUint16(12, 0, true);
+  view.setUint32(14, crc, true);
+  view.setUint32(18, data.length, true);
+  view.setUint32(22, data.length, true);
+  view.setUint16(26, nameBytes.length, true);
+  view.setUint16(28, 0, true);
+
+  return header;
+}
+
+function createCentralDirectoryHeader(entry: {
+  nameBytes: Uint8Array;
+  data: Uint8Array;
+  crc: number;
+  offset: number;
+}) {
+  const header = new Uint8Array(46);
+  const view = new DataView(header.buffer);
+
+  view.setUint32(0, 0x02014b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 20, true);
+  view.setUint16(8, 0x0800, true);
+  view.setUint16(10, 0, true);
+  view.setUint16(12, 0, true);
+  view.setUint16(14, 0, true);
+  view.setUint32(16, entry.crc, true);
+  view.setUint32(20, entry.data.length, true);
+  view.setUint32(24, entry.data.length, true);
+  view.setUint16(28, entry.nameBytes.length, true);
+  view.setUint16(30, 0, true);
+  view.setUint16(32, 0, true);
+  view.setUint16(34, 0, true);
+  view.setUint16(36, 0, true);
+  view.setUint32(38, 0, true);
+  view.setUint32(42, entry.offset, true);
+
+  return header;
+}
+
+function createEndOfCentralDirectoryRecord(
+  entryCount: number,
+  centralDirectorySize: number,
+  centralDirectoryOffset: number,
+) {
+  const header = new Uint8Array(22);
+  const view = new DataView(header.buffer);
+
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(4, 0, true);
+  view.setUint16(6, 0, true);
+  view.setUint16(8, entryCount, true);
+  view.setUint16(10, entryCount, true);
+  view.setUint32(12, centralDirectorySize, true);
+  view.setUint32(16, centralDirectoryOffset, true);
+  view.setUint16(20, 0, true);
+
+  return header;
+}
+
+function crc32(data: Uint8Array) {
+  let crc = 0xffffffff;
+
+  for (const byte of data) {
+    crc = (crc >>> 8) ^ crc32Table[(crc ^ byte) & 0xff];
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function normalizeZipPath(path: string) {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "") || "artifact.txt";
+}
+
+function toBlobPart(bytes: Uint8Array): BlobPart {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+const crc32Table = new Uint32Array(
+  Array.from({ length: 256 }, (_, index) => {
+    let value = index;
+
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+
+    return value >>> 0;
+  }),
+);
