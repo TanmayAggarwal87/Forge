@@ -32,6 +32,10 @@ export const databaseEntities = [
 
 export function createTypeOrmOptions(): TypeOrmModuleOptions {
   const databaseUrl = process.env.DATABASE_URL;
+  const shouldRunMigrations =
+    process.env.TYPEORM_MIGRATIONS_RUN === 'true' ||
+    (process.env.TYPEORM_MIGRATIONS_RUN !== 'false' &&
+      process.env.NODE_ENV !== 'production');
 
   return {
     type: 'postgres',
@@ -46,7 +50,7 @@ export function createTypeOrmOptions(): TypeOrmModuleOptions {
     entities: databaseEntities,
     migrations: [__dirname + '/migrations/*{.ts,.js}'],
     synchronize: false,
-    migrationsRun: process.env.TYPEORM_MIGRATIONS_RUN === 'true',
+    migrationsRun: shouldRunMigrations,
     ssl:
       process.env.DB_SSL === 'true'
         ? {
