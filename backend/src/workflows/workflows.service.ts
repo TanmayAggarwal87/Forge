@@ -10,6 +10,7 @@ import type {
 import { InMemoryStoreService } from '../identity/in-memory-store.service';
 import { validateWorkflowGraph } from './graph-validation';
 import { nodeRegistry } from './node-registry';
+import { generateWorkflowArtifacts } from './workflow-artifact-generator';
 import { compileWorkflowGraph } from './workflow-compiler';
 
 type WorkflowSummary = Pick<
@@ -126,14 +127,45 @@ export class WorkflowsService {
       });
     }
 
+    const published = this.store.publishWorkflow({
+      projectId,
+      workflowId,
+      actorUserId: userId,
+      compiledIr: compilation.ir,
+    });
+    const generatedArtifacts = this.store.replaceGeneratedArtifactsForVersion(
+      published.publishedVersion.id,
+      generateWorkflowArtifacts({
+        workflow: published,
+        version: published.publishedVersion,
+        ir: compilation.ir,
+      }),
+    );
+
     return {
-      workflow: this.store.publishWorkflow({
+      workflow: {
+        ...published,
+        publishedVersion: {
+          ...published.publishedVersion,
+          generatedArtifacts,
+        },
+      },
+      compilation,
+      generatedArtifacts,
+    };
+  }
+
+  listGeneratedArtifacts(
+    projectId: string,
+    workflowId: string,
+    userId: string,
+  ) {
+    return {
+      generatedArtifacts: this.store.listGeneratedArtifactsForPublishedWorkflow(
         projectId,
         workflowId,
-        actorUserId: userId,
-        compiledIr: compilation.ir,
-      }),
-      compilation,
+        userId,
+      ),
     };
   }
 

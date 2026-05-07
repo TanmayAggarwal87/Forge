@@ -81,6 +81,19 @@ export class WorkflowsController {
     );
   }
 
+  @Get(':workflowId/artifacts')
+  listGeneratedArtifacts(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+  ) {
+    return this.workflowsService.listGeneratedArtifacts(
+      projectId,
+      workflowId,
+      request.user.id,
+    );
+  }
+
   @Post(':workflowId/executions')
   executeWorkflow(
     @Req() request: AuthenticatedRequest,

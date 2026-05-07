@@ -3,6 +3,7 @@ import {
   Cable,
   CircleAlert,
   Code2,
+  FileCode2,
   GitBranch,
   Layers3,
   Play,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
+  GeneratedArtifact,
   NodeDefinition,
   Project,
   Workflow,
@@ -21,14 +23,17 @@ import type {
 type WorkflowStudioProps = {
   autosaveState: "idle" | "pending" | "saving" | "saved" | "error";
   compilationResult: WorkflowCompilationResult | null;
+  generatedArtifacts: GeneratedArtifact[];
   isBusy: boolean;
   isCompilingDraft: boolean;
+  isPublishingDraft: boolean;
   isSavingDraft: boolean;
   nodeDefinitions: NodeDefinition[];
   onAddEdge: (sourceNodeId: string, targetNodeId: string, label: string) => void;
   onAddNode: (definition: NodeDefinition) => void;
   onCompileDraft: () => void;
   onCreateWorkflow: (event: FormEvent<HTMLFormElement>) => void;
+  onPublishDraft: () => void;
   onRemoveEdge: (edgeId: string) => void;
   onRemoveNode: (nodeId: string) => void;
   onSelectWorkflow: (workflowId: string) => void;
@@ -39,7 +44,9 @@ type WorkflowStudioProps = {
   onWorkflowDraftDescriptionChange: (value: string) => void;
   onWorkflowDraftNameChange: (value: string) => void;
   selectedProject: Project | null;
+  selectedArtifactId: string | null;
   selectedWorkflowId: string | null;
+  setSelectedArtifactId: (artifactId: string) => void;
   workflowDescription: string;
   workflowDraft: Workflow | null;
   workflowName: string;
@@ -64,14 +71,17 @@ function getAutosaveLabel(state: WorkflowStudioProps["autosaveState"]) {
 export function WorkflowStudio({
   autosaveState,
   compilationResult,
+  generatedArtifacts,
   isBusy,
   isCompilingDraft,
+  isPublishingDraft,
   isSavingDraft,
   nodeDefinitions,
   onAddEdge,
   onAddNode,
   onCompileDraft,
   onCreateWorkflow,
+  onPublishDraft,
   onRemoveEdge,
   onRemoveNode,
   onSelectWorkflow,
@@ -82,7 +92,9 @@ export function WorkflowStudio({
   onWorkflowDraftDescriptionChange,
   onWorkflowDraftNameChange,
   selectedProject,
+  selectedArtifactId,
   selectedWorkflowId,
+  setSelectedArtifactId,
   workflowDescription,
   workflowDraft,
   workflowName,
@@ -97,6 +109,10 @@ export function WorkflowStudio({
     workflowDraft?.draftVersion.validation.isValid === false
       ? "border-amber-200 bg-amber-50"
       : "border-emerald-200 bg-emerald-50";
+  const selectedArtifact =
+    generatedArtifacts.find((artifact) => artifact.id === selectedArtifactId) ??
+    generatedArtifacts[0] ??
+    null;
 
   const groupedDefinitions = useMemo(() => {
     return nodeDefinitions.reduce<Record<string, NodeDefinition[]>>(
@@ -425,15 +441,29 @@ export function WorkflowStudio({
                     <CircleAlert className="size-4 text-amber-700" />
                     Draft validation
                   </div>
-                  <Button
-                    variant="outline"
-                    className="rounded-xl"
-                    disabled={isCompilingDraft || autosaveState === "saving"}
-                    onClick={onCompileDraft}
-                  >
-                    <Play />
-                    {isCompilingDraft ? "Compiling" : "Compile draft"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      disabled={isCompilingDraft || autosaveState === "saving"}
+                      onClick={onCompileDraft}
+                    >
+                      <Play />
+                      {isCompilingDraft ? "Compiling" : "Compile draft"}
+                    </Button>
+                    <Button
+                      className="rounded-xl"
+                      disabled={
+                        isPublishingDraft ||
+                        autosaveState === "pending" ||
+                        autosaveState === "saving"
+                      }
+                      onClick={onPublishDraft}
+                    >
+                      <Code2 />
+                      {isPublishingDraft ? "Publishing" : "Publish artifacts"}
+                    </Button>
+                  </div>
                 </div>
                 <div className="rounded-2xl border border-white/80 bg-white/70 p-4 text-sm text-stone-700">
                   <p className="font-medium text-stone-950">
@@ -517,6 +547,48 @@ export function WorkflowStudio({
                     ) : null}
                   </div>
                 ) : null}
+
+                <div className="mt-4 rounded-2xl border border-white/80 bg-white/80 p-4">
+                  <div className="flex items-center gap-2 font-semibold text-stone-950">
+                    <FileCode2 className="size-4 text-amber-700" />
+                    Generated artifacts
+                  </div>
+                  {generatedArtifacts.length === 0 ? (
+                    <p className="mt-3 rounded-xl border border-dashed border-stone-300 bg-white p-3 text-sm text-stone-600">
+                      Publish a valid draft to generate OpenAPI, endpoint metadata,
+                      schema contracts, SDK stubs, and code preview.
+                    </p>
+                  ) : (
+                    <div className="mt-3 grid gap-3">
+                      <div className="flex flex-wrap gap-2">
+                        {generatedArtifacts.map((artifact) => (
+                          <button
+                            key={artifact.id}
+                            onClick={() => setSelectedArtifactId(artifact.id)}
+                            className={`rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                              artifact.id === selectedArtifact?.id
+                                ? "border-stone-950 bg-stone-950 text-white"
+                                : "border-stone-200 bg-white text-stone-700 hover:border-amber-300"
+                            }`}
+                          >
+                            {artifact.name}
+                          </button>
+                        ))}
+                      </div>
+                      {selectedArtifact ? (
+                        <div className="overflow-hidden rounded-xl border border-stone-900 bg-stone-950">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2 text-xs text-stone-300">
+                            <span>{selectedArtifact.type}</span>
+                            <span>{selectedArtifact.checksum.slice(0, 16)}</span>
+                          </div>
+                          <pre className="max-h-[420px] overflow-auto p-4 text-xs leading-5 text-stone-100">
+                            <code>{selectedArtifact.content}</code>
+                          </pre>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </>

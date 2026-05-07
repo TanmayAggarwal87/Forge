@@ -107,4 +107,89 @@ describe('WorkflowsService', () => {
     expect(listed.workflows).toHaveLength(1);
     expect(listed.workflows[0]?.name).toBe('Inbound approval flow');
   });
+
+  it('stores generated artifacts when publishing a compiled workflow', () => {
+    const store = new InMemoryStoreService();
+    const workflowsService = new WorkflowsService(store);
+
+    const registration = store.register(
+      'publisher@example.com',
+      'password123',
+      'Publisher',
+    );
+    const workspace = store.createWorkspace({
+      actorUserId: registration.user.id,
+      name: 'Publishing',
+    });
+    const project = store.createProject({
+      actorUserId: registration.user.id,
+      workspaceId: workspace.id,
+      name: 'Contracts',
+      description: null,
+    });
+    const created = workflowsService.createWorkflow(
+      project.id,
+      registration.user.id,
+      {
+        name: 'Generated API',
+        graph: {
+          nodes: [
+            {
+              id: 'trigger-1',
+              type: 'trigger.http',
+              label: 'HTTP Trigger',
+              position: { x: 0, y: 0 },
+              config: {
+                method: 'POST',
+                path: '/generated-api',
+              },
+            },
+            {
+              id: 'response-1',
+              type: 'utility.response_builder',
+              label: 'Response',
+              position: { x: 180, y: 0 },
+              config: {},
+            },
+          ],
+          edges: [
+            {
+              id: 'edge-1',
+              sourceNodeId: 'trigger-1',
+              targetNodeId: 'response-1',
+              label: null,
+            },
+          ],
+        },
+      },
+    );
+
+    const published = workflowsService.publishDraft(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+    const artifacts = workflowsService.listGeneratedArtifacts(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+
+    expect(published.generatedArtifacts).toHaveLength(5);
+    expect(artifacts.generatedArtifacts).toHaveLength(5);
+    expect(artifacts.generatedArtifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workflowVersionId: published.workflow.publishedVersion.id,
+          type: 'openapi',
+          name: 'openapi.json',
+        }),
+        expect.objectContaining({
+          workflowVersionId: published.workflow.publishedVersion.id,
+          type: 'sdk_stub',
+          contentType: 'text/typescript',
+        }),
+      ]),
+    );
+  });
 });

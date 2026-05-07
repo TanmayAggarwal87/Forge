@@ -9,6 +9,7 @@ import {
 } from "@/lib/sessionStorage";
 import type {
   AuditLog,
+  GeneratedArtifact,
   NodeDefinition,
   Project,
   SessionUser,
@@ -74,8 +75,15 @@ export function useForgeApp() {
   const [isBusy, setIsBusy] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isCompilingDraft, setIsCompilingDraft] = useState(false);
+  const [isPublishingDraft, setIsPublishingDraft] = useState(false);
   const [compilationResult, setCompilationResult] =
     useState<WorkflowCompilationResult | null>(null);
+  const [generatedArtifacts, setGeneratedArtifacts] = useState<GeneratedArtifact[]>(
+    [],
+  );
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
+    null,
+  );
   const [autosaveState, setAutosaveState] = useState<AutosaveState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const lastSavedSignatureRef = useRef<string | null>(null);
@@ -149,6 +157,8 @@ export function useForgeApp() {
       setSelectedWorkflowId(null);
       setWorkflowDraft(null);
       setCompilationResult(null);
+      setGeneratedArtifacts([]);
+      setSelectedArtifactId(null);
       lastSavedSignatureRef.current = null;
       latestDraftSignatureRef.current = null;
       latestWorkflowIdRef.current = null;
@@ -253,6 +263,41 @@ export function useForgeApp() {
     [request],
   );
 
+  const setArtifactPayload = useCallback((artifacts: GeneratedArtifact[]) => {
+    setGeneratedArtifacts(artifacts);
+    setSelectedArtifactId((currentArtifactId) => {
+      if (
+        currentArtifactId &&
+        artifacts.some((artifact) => artifact.id === currentArtifactId)
+      ) {
+        return currentArtifactId;
+      }
+
+      return (
+        artifacts.find((artifact) => artifact.type === "openapi")?.id ??
+        artifacts[0]?.id ??
+        null
+      );
+    });
+  }, []);
+
+  const loadGeneratedArtifacts = useCallback(
+    async function loadGeneratedArtifacts(
+      activeToken: string,
+      projectId: string,
+      workflowId: string,
+    ) {
+      const payload = await request<{ generatedArtifacts: GeneratedArtifact[] }>(
+        `/projects/${projectId}/workflows/${workflowId}/artifacts`,
+        {},
+        activeToken,
+      );
+
+      setArtifactPayload(payload.generatedArtifacts);
+    },
+    [request, setArtifactPayload],
+  );
+
   const loadWorkflowDraft = useCallback(
     async function loadWorkflowDraft(
       activeToken: string,
@@ -273,8 +318,13 @@ export function useForgeApp() {
       setCompilationResult(null);
       replaceWorkflowSummary(createWorkflowSummary(payload.workflow));
       setAutosaveState(signature ? "saved" : "idle");
+      if (payload.workflow.status === "published") {
+        await loadGeneratedArtifacts(activeToken, projectId, workflowId);
+      } else {
+        setArtifactPayload([]);
+      }
     },
-    [replaceWorkflowSummary, request],
+    [loadGeneratedArtifacts, replaceWorkflowSummary, request, setArtifactPayload],
   );
 
   const loadSession = useCallback(
@@ -520,6 +570,7 @@ export function useForgeApp() {
     setSelectedWorkflowId(null);
     setWorkflowDraft(null);
     setCompilationResult(null);
+    setArtifactPayload([]);
     setAutosaveState("idle");
   }
 
@@ -529,6 +580,7 @@ export function useForgeApp() {
     setSelectedWorkflowId(null);
     setWorkflowDraft(null);
     setCompilationResult(null);
+    setArtifactPayload([]);
     setAutosaveState("idle");
   }
 
@@ -536,6 +588,7 @@ export function useForgeApp() {
     setSelectedWorkflowId(workflowId);
     setWorkflowDraft(null);
     setCompilationResult(null);
+    setArtifactPayload([]);
     setAutosaveState("idle");
   }
 
@@ -726,6 +779,39 @@ export function useForgeApp() {
     }
   }
 
+  async function handlePublishDraft() {
+    if (!token || !selectedProjectId || !workflowDraft) {
+      return;
+    }
+
+    setIsPublishingDraft(true);
+    setErrorMessage(null);
+
+    try {
+      const payload = await request<{
+        workflow: Workflow;
+        compilation: WorkflowCompilationResult;
+        generatedArtifacts: GeneratedArtifact[];
+      }>(
+        `/projects/${selectedProjectId}/workflows/${workflowDraft.id}/publish`,
+        { method: "POST" },
+      );
+      const signature = createWorkflowSignature(payload.workflow);
+      lastSavedSignatureRef.current = signature;
+      latestDraftSignatureRef.current = signature;
+      latestWorkflowIdRef.current = payload.workflow.id;
+      setWorkflowDraft(payload.workflow);
+      replaceWorkflowSummary(createWorkflowSummary(payload.workflow));
+      setCompilationResult(payload.compilation);
+      setArtifactPayload(payload.generatedArtifacts);
+      setAutosaveState("saved");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsPublishingDraft(false);
+    }
+  }
+
   async function handleSignOut() {
     if (token) {
       await request("/auth/sign-out", { method: "POST" }).catch(() => null);
@@ -738,9 +824,11 @@ export function useForgeApp() {
     autosaveState,
     compilationResult,
     errorMessage,
+    generatedArtifacts,
     handleAddEdge,
     handleAddNode,
     handleCompileDraft,
+    handlePublishDraft,
     handleCreateProject,
     handleCreateWorkflow,
     handleCreateWorkspace,
@@ -755,6 +843,7 @@ export function useForgeApp() {
     isBusy,
     isCompilingDraft,
     isLoadingSession: Boolean(token && !user),
+    isPublishingDraft,
     isSavingDraft,
     nodeDefinitions,
     projectDescription,
@@ -762,6 +851,7 @@ export function useForgeApp() {
     projects,
     selectedProject,
     selectedProjectId,
+    selectedArtifactId,
     selectedWorkflowId,
     selectedWorkspace,
     selectedWorkspaceId,
@@ -769,6 +859,7 @@ export function useForgeApp() {
     setSelectedWorkspaceId: handleSelectWorkspace,
     setProjectDescription,
     setProjectName,
+    setSelectedArtifactId,
     setWorkflowDescription,
     setWorkflowName,
     setWorkspaceName,

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import {
   AuditLog,
+  GeneratedArtifact,
   Project,
   Session,
   SessionUser,
@@ -86,6 +87,7 @@ type DatabaseShape = {
   workflowExecutions: WorkflowExecution[];
   workflowExecutionSteps: WorkflowExecutionStep[];
   workflowExecutionLogs: WorkflowExecutionLog[];
+  generatedArtifacts: GeneratedArtifact[];
   auditLogs: AuditLog[];
 };
 
@@ -105,6 +107,7 @@ export class InMemoryStoreService {
     WorkflowExecutionStep
   >();
   private readonly workflowExecutionLogs: WorkflowExecutionLog[] = [];
+  private readonly generatedArtifacts = new Map<string, GeneratedArtifact>();
   private readonly auditLogs: AuditLog[] = [];
   private readonly databasePath =
     process.env.FORGE_DATABASE_PATH ??
@@ -528,6 +531,58 @@ export class InMemoryStoreService {
     };
   }
 
+  replaceGeneratedArtifactsForVersion(
+    workflowVersionId: string,
+    artifacts: GeneratedArtifact[],
+  ): GeneratedArtifact[] {
+    const version = this.getWorkflowVersionById(workflowVersionId);
+    for (const artifact of Array.from(this.generatedArtifacts.values())) {
+      if (artifact.workflowVersionId === workflowVersionId) {
+        this.generatedArtifacts.delete(artifact.id);
+      }
+    }
+
+    const normalizedArtifacts = artifacts.map((artifact) => ({
+      ...artifact,
+      projectId: version.projectId,
+      workflowId: version.workflowId,
+      workflowVersionId,
+    }));
+
+    for (const artifact of normalizedArtifacts) {
+      this.generatedArtifacts.set(artifact.id, artifact);
+    }
+
+    this.saveDatabase();
+    return normalizedArtifacts;
+  }
+
+  listGeneratedArtifactsForPublishedWorkflow(
+    projectId: string,
+    workflowId: string,
+    userId: string,
+  ): GeneratedArtifact[] {
+    const workflow = this.getPublishedWorkflowForUser(
+      projectId,
+      workflowId,
+      userId,
+    );
+
+    return this.listGeneratedArtifactsForVersion(workflow.publishedVersion.id);
+  }
+
+  listGeneratedArtifactsForVersion(
+    workflowVersionId: string,
+  ): GeneratedArtifact[] {
+    return Array.from(this.generatedArtifacts.values())
+      .filter((artifact) => artifact.workflowVersionId === workflowVersionId)
+      .sort((left, right) =>
+        left.type === right.type
+          ? left.name.localeCompare(right.name)
+          : left.type.localeCompare(right.type),
+      );
+  }
+
   getPublishedWorkflowForUser(
     projectId: string,
     workflowId: string,
@@ -843,6 +898,10 @@ export class InMemoryStoreService {
 
     this.workflowExecutionLogs.push(...(database.workflowExecutionLogs ?? []));
 
+    for (const artifact of database.generatedArtifacts ?? []) {
+      this.generatedArtifacts.set(artifact.id, artifact);
+    }
+
     this.auditLogs.push(...(database.auditLogs ?? []));
   }
 
@@ -859,6 +918,7 @@ export class InMemoryStoreService {
       workflowExecutions: Array.from(this.workflowExecutions.values()),
       workflowExecutionSteps: Array.from(this.workflowExecutionSteps.values()),
       workflowExecutionLogs: this.workflowExecutionLogs,
+      generatedArtifacts: Array.from(this.generatedArtifacts.values()),
       auditLogs: this.auditLogs,
     };
 

@@ -441,7 +441,7 @@ export class WorkflowExecutionService implements OnModuleDestroy {
 
       try {
         const output = await withTimeout(
-          this.executeNode(node, input),
+          Promise.resolve(this.executeNode(node, input)),
           node.timeoutMs,
         );
         const completedAt = new Date().toISOString();
@@ -495,20 +495,20 @@ export class WorkflowExecutionService implements OnModuleDestroy {
         );
 
         if (isFinalAttempt) {
-          throw lastError;
+          throw toRuntimeNodeError(lastError);
         }
 
         await sleep(this.retryBackoffBaseMs * 2 ** (attempt - 1));
       }
     }
 
-    throw lastError;
+    throw toRuntimeNodeError(lastError);
   }
 
-  private async executeNode(
+  private executeNode(
     node: WorkflowIrNode,
     input: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+  ): Record<string, unknown> {
     switch (node.type) {
       case 'trigger.http':
       case 'trigger.schedule':
@@ -832,6 +832,20 @@ function parseLiteral(value: string): unknown {
 
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : value;
+}
+
+function toRuntimeNodeError(
+  error: WorkflowExecutionError | null,
+): RuntimeNodeError {
+  if (!error) {
+    return new RuntimeNodeError(
+      'runtime.error',
+      'Workflow execution failed.',
+      false,
+    );
+  }
+
+  return new RuntimeNodeError(error.code, error.message, error.retryable);
 }
 
 async function withTimeout<T>(

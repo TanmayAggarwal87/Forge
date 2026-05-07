@@ -149,6 +149,30 @@ export type WorkflowCompilationResult = {
   ir: WorkflowIntermediateRepresentation | null;
 };
 
+export type GeneratedArtifactType =
+  | 'openapi'
+  | 'endpoint_contract'
+  | 'dto_schema'
+  | 'sdk_stub'
+  | 'code_preview';
+
+export type GeneratedArtifactContentType =
+  | 'application/json'
+  | 'text/typescript';
+
+export type GeneratedArtifact = {
+  id: string;
+  projectId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  type: GeneratedArtifactType;
+  name: string;
+  contentType: GeneratedArtifactContentType;
+  checksum: string;
+  content: string;
+  createdAt: string;
+};
+
 export type WorkflowVersion = {
   id: string;
   workflowId: string;

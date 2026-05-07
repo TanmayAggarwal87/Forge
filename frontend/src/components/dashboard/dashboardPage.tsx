@@ -94,14 +94,17 @@ export function DashboardPage() {
           <WorkflowStudio
             autosaveState={app.autosaveState}
             compilationResult={app.compilationResult}
+            generatedArtifacts={app.generatedArtifacts}
             isBusy={app.isBusy}
             isCompilingDraft={app.isCompilingDraft}
+            isPublishingDraft={app.isPublishingDraft}
             isSavingDraft={app.isSavingDraft}
             nodeDefinitions={app.nodeDefinitions}
             onAddEdge={app.handleAddEdge}
             onAddNode={app.handleAddNode}
             onCompileDraft={app.handleCompileDraft}
             onCreateWorkflow={app.handleCreateWorkflow}
+            onPublishDraft={app.handlePublishDraft}
             onRemoveEdge={app.handleRemoveEdge}
             onRemoveNode={app.handleRemoveNode}
             onSelectWorkflow={app.handleSelectWorkflow}
@@ -112,7 +115,9 @@ export function DashboardPage() {
             onWorkflowDraftDescriptionChange={app.handleWorkflowDescriptionChange}
             onWorkflowDraftNameChange={app.handleWorkflowNameChange}
             selectedProject={app.selectedProject}
+            selectedArtifactId={app.selectedArtifactId}
             selectedWorkflowId={app.selectedWorkflowId}
+            setSelectedArtifactId={app.setSelectedArtifactId}
             workflowDescription={app.workflowDescription}
             workflowDraft={app.workflowDraft}
             workflowName={app.workflowName}
