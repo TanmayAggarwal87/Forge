@@ -49,6 +49,10 @@ export function ArtifactDrawer({
   }, [artifacts, selectedArtifactId]);
 
   const fileTree = useMemo(() => buildFileTree(artifacts), [artifacts]);
+  const generationWarnings = useMemo(
+    () => collectGenerationWarnings(artifacts),
+    [artifacts],
+  );
 
   async function handleGenerate(mode: BackendArtifactGenerationMode) {
     if (!backendWorkflowId || !token) {
@@ -158,6 +162,10 @@ export function ArtifactDrawer({
           <EmptyState />
         ) : (
           <div className="grid gap-4">
+            {generationWarnings.length > 0 ? (
+              <GenerationWarnings warnings={generationWarnings} />
+            ) : null}
+
             <FileTreePreview
               tree={fileTree}
               selectedArtifactId={selectedArtifact?.id ?? null}
@@ -213,6 +221,19 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <p className="mt-1 truncate text-sm font-semibold text-slate-900">
         {value}
       </p>
+    </div>
+  );
+}
+
+function GenerationWarnings({ warnings }: { warnings: string[] }) {
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+      <p className="font-semibold">Generation warnings</p>
+      <ul className="mt-2 grid gap-1">
+        {warnings.map((warning) => (
+          <li key={warning}>{warning}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -365,6 +386,33 @@ function buildFileTree(artifacts: BackendGeneratedArtifact[]): FileTreeItem[] {
   }
 
   return items;
+}
+
+function collectGenerationWarnings(artifacts: BackendGeneratedArtifact[]) {
+  const warnings = new Set<string>();
+
+  if (artifacts.some((artifact) => artifact.type === "backend_module")) {
+    warnings.add(
+      "Review README.md and .env.example before using generated backend code.",
+    );
+  }
+
+  if (
+    artifacts.some(
+      (artifact) =>
+        artifact.name.includes("/providers/") || artifact.name.includes("\\providers\\"),
+    )
+  ) {
+    warnings.add(
+      "Generated providers are integration boundaries and may need production replacements.",
+    );
+  }
+
+  if (artifacts.some((artifact) => artifact.name.endsWith("GENERATION_WARNINGS.md"))) {
+    warnings.add("This export includes workflow-specific generation warnings.");
+  }
+
+  return [...warnings];
 }
 
 function getFileName(path: string) {

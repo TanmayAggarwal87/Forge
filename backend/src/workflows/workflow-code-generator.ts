@@ -55,6 +55,31 @@ type GeneratorContext = {
   edges: CanvasEdge[];
 };
 
+type GenerationWarning = {
+  title: string;
+  detail: string;
+};
+
+const SUPPORTED_BACKEND_NODE_TYPES = new Set([
+  'httpTrigger',
+  'webhookTrigger',
+  'generateOtp',
+  'verifyOtp',
+  'jwtSign',
+  'sendSms',
+  'sendEmail',
+  'verifySignature',
+  'condition',
+  'databaseWrite',
+  'databaseUpdate',
+  'databaseRead',
+  'databaseDelete',
+  'webhookResponse',
+  'delay',
+  'externalApiCall',
+  'transformData',
+]);
+
 export function buildWorkflowArtifacts(
   workflow: WorkflowEntity,
   version: WorkflowVersionEntity,
@@ -99,6 +124,16 @@ function buildWorkflowDefinitionArtifacts(
 function buildBackendModuleArtifacts(
   context: GeneratorContext,
 ): GeneratedArtifactEntity[] {
+  const unsupportedNodes = getUnsupportedBackendNodes(context.nodes);
+
+  if (unsupportedNodes.length > 0) {
+    throw new BadRequestException(
+      `This workflow contains nodes that are not supported for backend code generation yet: ${unsupportedNodes
+        .map((node) => `${node.label} (${node.nodeType})`)
+        .join(', ')}.`,
+    );
+  }
+
   if (isPaymentWebhookWorkflow(context.nodes)) {
     return buildPaymentWebhookArtifacts(context);
   }
@@ -107,9 +142,13 @@ function buildBackendModuleArtifacts(
     return buildOtpAuthArtifacts(context);
   }
 
-  throw new BadRequestException(
-    'Backend module generation currently supports OTP Authentication and Payment Webhook workflows.',
-  );
+  return buildGenericWorkflowArtifacts(context, [
+    {
+      title: 'Workflow skeleton generated',
+      detail:
+        'This workflow uses supported nodes but does not match a specialized backend module template yet. Review the service TODOs before production use.',
+    },
+  ]);
 }
 
 function buildWorkflowDefinition(
@@ -159,6 +198,7 @@ function buildWorkflowDefinitionSource(definition: WorkflowDefinition): string {
 function buildOtpAuthArtifacts(
   context: GeneratorContext,
 ): GeneratedArtifactEntity[] {
+  const otpLength = getOtpLength(context.nodes);
   const files: Array<GeneratedFile> = [
     {
       path: 'generated/otp-auth/otp-auth.module.ts',
@@ -173,18 +213,17 @@ function buildOtpAuthArtifacts(
     {
       path: 'generated/otp-auth/otp-auth.service.ts',
       contentType: 'text/typescript',
-      content: buildOtpAuthServiceSource(),
+      content: buildOtpAuthServiceSource(otpLength),
     },
     {
       path: 'generated/otp-auth/dto/request-otp.dto.ts',
       contentType: 'text/typescript',
-      content: 'export class RequestOtpDto {\n  phoneNumber!: string;\n}\n',
+      content: buildRequestOtpDtoSource(),
     },
     {
       path: 'generated/otp-auth/dto/verify-otp.dto.ts',
       contentType: 'text/typescript',
-      content:
-        'export class VerifyOtpDto {\n  phoneNumber!: string;\n  otp!: string;\n}\n',
+      content: buildVerifyOtpDtoSource(otpLength),
     },
     {
       path: 'generated/otp-auth/providers/otp-store.provider.ts',
@@ -210,11 +249,12 @@ function buildOtpAuthArtifacts(
       path: 'generated/otp-auth/.env.example',
       contentType: 'text/plain',
       content: [
-        'SMS_PROVIDER_URL=https://sms-provider.example.com/messages',
-        'SMS_PROVIDER_API_KEY={{SMS_PROVIDER_API_KEY}}',
-        'JWT_SECRET={{JWT_SECRET}}',
-        'OTP_HASH_SECRET={{OTP_HASH_SECRET}}',
-        'OTP_TTL_SECONDS=300',
+        'SMS_PROVIDER_URL=https://example.com/send',
+        'SMS_PROVIDER_API_KEY=replace_with_sms_api_key',
+        'JWT_SECRET=replace_with_secure_secret',
+        'JWT_EXPIRES_IN=15m',
+        'OTP_HASH_SECRET=replace_with_otp_hash_secret',
+        `OTP_TTL_SECONDS=${getOtpTtlSeconds(context.nodes)}`,
         '',
       ].join('\n'),
     },
@@ -226,6 +266,7 @@ function buildOtpAuthArtifacts(
 function buildPaymentWebhookArtifacts(
   context: GeneratorContext,
 ): GeneratedArtifactEntity[] {
+  const signatureHeaderName = getSignatureHeaderName(context.nodes);
   const files: Array<GeneratedFile> = [
     {
       path: 'generated/payment-webhook/payment-webhook.module.ts',
@@ -258,9 +299,14 @@ function buildPaymentWebhookArtifacts(
       content: buildEmailProviderSource(),
     },
     {
+      path: 'generated/payment-webhook/providers/subscription.repository.ts',
+      contentType: 'text/typescript',
+      content: buildSubscriptionRepositorySource(),
+    },
+    {
       path: 'generated/payment-webhook/types/payment-webhook.types.ts',
       contentType: 'text/typescript',
-      content: buildPaymentWebhookTypesSource(),
+      content: buildPaymentWebhookTypesSource(signatureHeaderName),
     },
     {
       path: 'generated/payment-webhook/README.md',
@@ -271,10 +317,12 @@ function buildPaymentWebhookArtifacts(
       path: 'generated/payment-webhook/.env.example',
       contentType: 'text/plain',
       content: [
-        'WEBHOOK_SIGNING_SECRET={{WEBHOOK_SIGNING_SECRET}}',
-        'EMAIL_PROVIDER_URL=https://email-provider.example.com/messages',
-        'EMAIL_PROVIDER_API_KEY={{EMAIL_PROVIDER_API_KEY}}',
+        `WEBHOOK_SIGNATURE_HEADER=${signatureHeaderName}`,
+        'WEBHOOK_SIGNING_SECRET=replace_with_webhook_secret',
+        'EMAIL_PROVIDER_URL=https://example.com/send-email',
+        'EMAIL_PROVIDER_API_KEY=replace_with_email_api_key',
         'PAYMENT_RECEIPT_FROM=billing@example.com',
+        'SUBSCRIPTION_API_URL=https://example.com/subscriptions',
         '',
       ].join('\n'),
     },
@@ -283,20 +331,252 @@ function buildPaymentWebhookArtifacts(
   return files.map((file) => createFileArtifact(context, file));
 }
 
+function buildGenericWorkflowArtifacts(
+  context: GeneratorContext,
+  warnings: GenerationWarning[],
+): GeneratedArtifactEntity[] {
+  const moduleName = toPascalCase(
+    context.workflow.slug || context.workflow.name,
+  );
+  const filePrefix = toKebabCase(
+    context.workflow.slug || context.workflow.name,
+  );
+  const root = `generated/${filePrefix}`;
+  const files: Array<GeneratedFile> = [
+    {
+      path: `${root}/${filePrefix}.module.ts`,
+      contentType: 'text/typescript',
+      content: buildGenericWorkflowModuleSource(moduleName, filePrefix),
+    },
+    {
+      path: `${root}/${filePrefix}.controller.ts`,
+      contentType: 'text/typescript',
+      content: buildGenericWorkflowControllerSource(moduleName, filePrefix),
+    },
+    {
+      path: `${root}/${filePrefix}.service.ts`,
+      contentType: 'text/typescript',
+      content: buildGenericWorkflowServiceSource(context, moduleName),
+    },
+    {
+      path: `${root}/dto/execute-workflow.dto.ts`,
+      contentType: 'text/typescript',
+      content: buildGenericExecuteWorkflowDtoSource(),
+    },
+    {
+      path: `${root}/types/${filePrefix}.types.ts`,
+      contentType: 'text/typescript',
+      content: buildGenericWorkflowTypesSource(moduleName),
+    },
+    {
+      path: `${root}/README.md`,
+      contentType: 'text/markdown',
+      content: buildGenericWorkflowReadme(context, moduleName, warnings),
+    },
+    {
+      path: `${root}/.env.example`,
+      contentType: 'text/plain',
+      content: '',
+    },
+    {
+      path: `${root}/GENERATION_WARNINGS.md`,
+      contentType: 'text/markdown',
+      content: buildWarningsMarkdown(warnings),
+    },
+  ];
+
+  return files.map((file) => createFileArtifact(context, file));
+}
+
+function buildGenericWorkflowModuleSource(
+  moduleName: string,
+  filePrefix: string,
+): string {
+  return [
+    "import { Module } from '@nestjs/common';",
+    `import { ${moduleName}Controller } from './${filePrefix}.controller';`,
+    `import { ${moduleName}Service } from './${filePrefix}.service';`,
+    '',
+    '@Module({',
+    `  controllers: [${moduleName}Controller],`,
+    `  providers: [${moduleName}Service],`,
+    `  exports: [${moduleName}Service],`,
+    '})',
+    `export class ${moduleName}Module {}`,
+  ].join('\n');
+}
+
+function buildGenericWorkflowControllerSource(
+  moduleName: string,
+  filePrefix: string,
+): string {
+  return [
+    "import { Body, Controller, Post } from '@nestjs/common';",
+    "import { ExecuteWorkflowDto } from './dto/execute-workflow.dto';",
+    `import { ${moduleName}Service } from './${filePrefix}.service';`,
+    '',
+    `@Controller('${filePrefix}')`,
+    `export class ${moduleName}Controller {`,
+    `  constructor(private readonly workflowService: ${moduleName}Service) {}`,
+    '',
+    '  @Post()',
+    '  execute(@Body() dto: ExecuteWorkflowDto) {',
+    '    return this.workflowService.execute(dto);',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildGenericWorkflowServiceSource(
+  context: GeneratorContext,
+  moduleName: string,
+): string {
+  return [
+    "import { Injectable } from '@nestjs/common';",
+    "import { ExecuteWorkflowDto } from './dto/execute-workflow.dto';",
+    `import type { ${moduleName}Result } from './types/${toKebabCase(
+      context.workflow.slug || context.workflow.name,
+    )}.types';`,
+    '',
+    '@Injectable()',
+    `export class ${moduleName}Service {`,
+    `  async execute(dto: ExecuteWorkflowDto): Promise<${moduleName}Result> {`,
+    '    return {',
+    '      status: "requires_implementation",',
+    `      workflowId: ${JSON.stringify(context.workflow.id)},`,
+    `      nodeCount: ${context.nodes.length},`,
+    '      input: dto.input ?? {},',
+    '      warnings: [',
+    '        "This generated module is a typed skeleton for a supported-node workflow.",',
+    '        "Add concrete provider implementations before production use.",',
+    '      ],',
+    '    };',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildGenericExecuteWorkflowDtoSource(): string {
+  return [
+    "import { IsObject, IsOptional } from 'class-validator';",
+    '',
+    'export class ExecuteWorkflowDto {',
+    '  @IsOptional()',
+    '  @IsObject()',
+    '  input?: Record<string, unknown>;',
+    '}',
+  ].join('\n');
+}
+
+function buildGenericWorkflowTypesSource(moduleName: string): string {
+  return [
+    `export type ${moduleName}Result = {`,
+    '  status: "requires_implementation";',
+    '  workflowId: string;',
+    '  nodeCount: number;',
+    '  input: Record<string, unknown>;',
+    '  warnings: string[];',
+    '};',
+  ].join('\n');
+}
+
+function buildGenericWorkflowReadme(
+  context: GeneratorContext,
+  moduleName: string,
+  warnings: GenerationWarning[],
+): string {
+  return [
+    `# ${moduleName} Module`,
+    '',
+    `Generated from FORGE workflow "${context.workflow.name}".`,
+    '',
+    'This is a generic NestJS workflow skeleton because the graph uses supported nodes but does not match a specialized generator template yet.',
+    '',
+    '## Install dependencies',
+    '',
+    '```bash',
+    'npm install class-validator class-transformer',
+    '```',
+    '',
+    '## Register the module',
+    '',
+    'Import the generated module into your NestJS application module.',
+    '',
+    '## Warnings',
+    '',
+    ...warnings.map((warning) => `- ${warning.title}: ${warning.detail}`),
+    '',
+    '## Production replacement points',
+    '',
+    '- Add concrete providers/repositories for side-effect nodes before production use.',
+    '- Keep controllers thin and move workflow behavior into the service as providers become supported.',
+    '',
+  ].join('\n');
+}
+
+function buildWarningsMarkdown(warnings: GenerationWarning[]): string {
+  return [
+    '# Generation Warnings',
+    '',
+    ...warnings.map((warning) => `- **${warning.title}**: ${warning.detail}`),
+    '',
+  ].join('\n');
+}
+
 function buildOtpAuthModuleSource(): string {
   return [
     "import { Module } from '@nestjs/common';",
+    "import { JwtModule } from '@nestjs/jwt';",
     "import { OtpAuthController } from './otp-auth.controller';",
     "import { OtpAuthService } from './otp-auth.service';",
     "import { InMemoryOtpStore } from './providers/otp-store.provider';",
     "import { SmsProvider } from './providers/sms.provider';",
+    "import { OTP_STORE } from './types/otp-auth.types';",
     '',
     '@Module({',
+    '  imports: [',
+    '    JwtModule.register({',
+    `      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN ?? "15m" },`,
+    '    }),',
+    '  ],',
     '  controllers: [OtpAuthController],',
-    '  providers: [OtpAuthService, InMemoryOtpStore, SmsProvider],',
+    '  providers: [',
+    '    OtpAuthService,',
+    '    SmsProvider,',
+    '    { provide: OTP_STORE, useClass: InMemoryOtpStore },',
+    '  ],',
     '  exports: [OtpAuthService],',
     '})',
     'export class OtpAuthModule {}',
+  ].join('\n');
+}
+
+function buildRequestOtpDtoSource(): string {
+  return [
+    "import { IsNotEmpty, IsString } from 'class-validator';",
+    '',
+    'export class RequestOtpDto {',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  phoneNumber!: string;',
+    '}',
+  ].join('\n');
+}
+
+function buildVerifyOtpDtoSource(otpLength: number): string {
+  return [
+    "import { IsNotEmpty, IsString, Matches } from 'class-validator';",
+    '',
+    'export class VerifyOtpDto {',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  phoneNumber!: string;',
+    '',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    `  @Matches(/^\\d{${otpLength}}$/, { message: "otp must be a ${otpLength} digit numeric code" })`,
+    '  otp!: string;',
+    '}',
   ].join('\n');
 }
 
@@ -324,67 +604,78 @@ function buildOtpAuthControllerSource(): string {
   ].join('\n');
 }
 
-function buildOtpAuthServiceSource(): string {
+function buildOtpAuthServiceSource(otpLength: number): string {
   return [
-    "import { Injectable } from '@nestjs/common';",
-    "import { createHmac, randomInt } from 'crypto';",
+    "import { Inject, Injectable, InternalServerErrorException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';",
+    "import { JwtService } from '@nestjs/jwt';",
+    "import { randomInt } from 'crypto';",
     "import { RequestOtpDto } from './dto/request-otp.dto';",
     "import { VerifyOtpDto } from './dto/verify-otp.dto';",
-    "import { InMemoryOtpStore } from './providers/otp-store.provider';",
     "import { SmsProvider } from './providers/sms.provider';",
-    "import type { RequestOtpResult, VerifyOtpResult } from './types/otp-auth.types';",
+    "import { OTP_STORE, type OtpStore, type RequestOtpResult, type VerifyOtpResult } from './types/otp-auth.types';",
     '',
     '@Injectable()',
     'export class OtpAuthService {',
     '  constructor(',
-    '    private readonly otpStore: InMemoryOtpStore,',
+    '    @Inject(OTP_STORE) private readonly otpStore: OtpStore,',
     '    private readonly smsProvider: SmsProvider,',
+    '    private readonly jwtService: JwtService,',
     '  ) {}',
     '',
     '  async requestOtp(dto: RequestOtpDto): Promise<RequestOtpResult> {',
     '    const ttlSeconds = Number(process.env.OTP_TTL_SECONDS ?? 300);',
-    '    const otp = randomInt(0, 1_000_000).toString().padStart(6, "0");',
+    `    const otp = this.generateNumericOtp(${otpLength});`,
     '',
-    '    await this.otpStore.save(dto.phoneNumber, otp, ttlSeconds, 3);',
-    '    await this.smsProvider.sendOtp(dto.phoneNumber, otp);',
+    '    await this.otpStore.saveOtp({',
+    '      phoneNumber: dto.phoneNumber,',
+    '      otp,',
+    '      ttlSeconds,',
+    '      maxAttempts: 3,',
+    '    });',
+    '',
+    '    try {',
+    '      await this.smsProvider.sendOtp(dto.phoneNumber, otp);',
+    '    } catch {',
+    '      await this.otpStore.deleteOtp(dto.phoneNumber);',
+    '      throw new InternalServerErrorException("Unable to send OTP.");',
+    '    }',
     '',
     '    return { ok: true, expiresInSeconds: ttlSeconds };',
     '  }',
     '',
     '  async verifyOtp(dto: VerifyOtpDto): Promise<VerifyOtpResult> {',
-    '    const verified = await this.otpStore.verify(dto.phoneNumber, dto.otp);',
+    '    const result = await this.otpStore.verifyOtp(dto.phoneNumber, dto.otp);',
     '',
-    '    if (!verified) {',
-    '      return { ok: false, reason: "INVALID_OTP" };',
+    '    if (result !== "verified") {',
+    '      throw new UnauthorizedException("Invalid or expired OTP.");',
     '    }',
     '',
     '    return {',
     '      ok: true,',
-    '      accessToken: this.createAccessToken(dto.phoneNumber),',
+    '      accessToken: await this.createAccessToken(dto.phoneNumber),',
     '    };',
     '  }',
     '',
-    '  private createAccessToken(subject: string): string {',
+    '  private async createAccessToken(subject: string): Promise<string> {',
     '    const secret = process.env.JWT_SECRET;',
     '',
     '    if (!secret) {',
-    '      throw new Error("JWT_SECRET is required to issue OTP auth tokens.");',
+    '      throw new ServiceUnavailableException("JWT_SECRET is required to issue OTP auth tokens.");',
     '    }',
     '',
-    '    const header = this.encodeJwtPart({ alg: "HS256", typ: "JWT" });',
-    '    const payload = this.encodeJwtPart({',
-    '      sub: subject,',
-    '      iat: Math.floor(Date.now() / 1000),',
-    '    });',
-    '    const signature = createHmac("sha256", secret)',
-    '      .update(`${header}.${payload}`)',
-    '      .digest("base64url");',
-    '',
-    '    return `${header}.${payload}.${signature}`;',
+    '    return this.jwtService.signAsync(',
+    '      { sub: subject },',
+    '      {',
+    '        secret,',
+    '        expiresIn: process.env.JWT_EXPIRES_IN ?? "15m",',
+    '      },',
+    '    );',
     '  }',
     '',
-    '  private encodeJwtPart(value: Record<string, unknown>): string {',
-    '    return Buffer.from(JSON.stringify(value)).toString("base64url");',
+    '  private generateNumericOtp(length: number): string {',
+    '    const upperBound = 10 ** length;',
+    '',
+    '    return randomInt(0, upperBound).toString().padStart(length, "0");',
     '  }',
     '}',
   ].join('\n');
@@ -394,43 +685,50 @@ function buildOtpStoreProviderSource(): string {
   return [
     "import { Injectable } from '@nestjs/common';",
     "import { createHash } from 'crypto';",
+    "import type { OtpRecord, OtpStore, OtpVerificationResult, SaveOtpInput } from '../types/otp-auth.types';",
     '',
-    'type StoredOtp = {',
-    '  otpHash: string;',
-    '  expiresAt: number;',
-    '  attempts: number;',
-    '  maxAttempts: number;',
-    '};',
-    '',
+    '// Demo-only store. OTPs are lost on restart and are not shared across app instances.',
+    '// Replace this with Redis or another expiring distributed store before production.',
     '@Injectable()',
-    'export class InMemoryOtpStore {',
-    '  private readonly records = new Map<string, StoredOtp>();',
+    'export class InMemoryOtpStore implements OtpStore {',
+    '  private readonly records = new Map<string, OtpRecord>();',
     '',
-    '  async save(',
-    '    phoneNumber: string,',
-    '    otp: string,',
-    '    ttlSeconds: number,',
-    '    maxAttempts: number,',
-    '  ): Promise<void> {',
-    '    this.records.set(phoneNumber, {',
-    '      otpHash: this.hashOtp(otp),',
-    '      expiresAt: Date.now() + ttlSeconds * 1000,',
+    '  async saveOtp(input: SaveOtpInput): Promise<void> {',
+    '    this.records.set(input.phoneNumber, {',
+    '      phoneNumber: input.phoneNumber,',
+    '      otpHash: this.hashOtp(input.otp),',
+    '      expiresAt: Date.now() + input.ttlSeconds * 1000,',
     '      attempts: 0,',
-    '      maxAttempts,',
+    '      maxAttempts: input.maxAttempts,',
     '    });',
     '  }',
     '',
-    '  async verify(phoneNumber: string, otp: string): Promise<boolean> {',
+    '  async getOtp(phoneNumber: string): Promise<OtpRecord | null> {',
+    '    return this.records.get(phoneNumber) ?? null;',
+    '  }',
+    '',
+    '  async deleteOtp(phoneNumber: string): Promise<void> {',
+    '    this.records.delete(phoneNumber);',
+    '  }',
+    '',
+    '  async verifyOtp(',
+    '    phoneNumber: string,',
+    '    otp: string,',
+    '  ): Promise<OtpVerificationResult> {',
     '    const record = this.records.get(phoneNumber);',
     '',
-    '    if (!record || record.expiresAt < Date.now()) {',
+    '    if (!record) {',
+    '      return "not_found";',
+    '    }',
+    '',
+    '    if (record.expiresAt < Date.now()) {',
     '      this.records.delete(phoneNumber);',
-    '      return false;',
+    '      return "expired";',
     '    }',
     '',
     '    if (record.attempts >= record.maxAttempts) {',
     '      this.records.delete(phoneNumber);',
-    '      return false;',
+    '      return "too_many_attempts";',
     '    }',
     '',
     '    record.attempts += 1;',
@@ -438,9 +736,10 @@ function buildOtpStoreProviderSource(): string {
     '',
     '    if (verified) {',
     '      this.records.delete(phoneNumber);',
+    '      return "verified";',
     '    }',
     '',
-    '    return verified;',
+    '    return "invalid";',
     '  }',
     '',
     '  private hashOtp(otp: string): string {',
@@ -458,7 +757,7 @@ function buildOtpStoreProviderSource(): string {
 
 function buildSmsProviderSource(): string {
   return [
-    "import { Injectable } from '@nestjs/common';",
+    "import { Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';",
     '',
     '@Injectable()',
     'export class SmsProvider {',
@@ -467,11 +766,11 @@ function buildSmsProviderSource(): string {
     '    const apiKey = process.env.SMS_PROVIDER_API_KEY;',
     '',
     '    if (!endpoint) {',
-    '      throw new Error("SMS_PROVIDER_URL is required to send OTP messages.");',
+    '      throw new ServiceUnavailableException("SMS_PROVIDER_URL is required to send OTP messages.");',
     '    }',
     '',
     '    if (!apiKey) {',
-    '      throw new Error("SMS_PROVIDER_API_KEY is required to send OTP messages.");',
+    '      throw new ServiceUnavailableException("SMS_PROVIDER_API_KEY is required to send OTP messages.");',
     '    }',
     '',
     '    const response = await fetch(endpoint, {',
@@ -487,7 +786,7 @@ function buildSmsProviderSource(): string {
     '    });',
     '',
     '    if (!response.ok) {',
-    '      throw new Error(`SMS provider request failed with ${response.status}`);',
+    '      throw new InternalServerErrorException(`SMS provider request failed with ${response.status}`);',
     '    }',
     '  }',
     '}',
@@ -496,19 +795,45 @@ function buildSmsProviderSource(): string {
 
 function buildOtpAuthTypesSource(): string {
   return [
+    'export const OTP_STORE = Symbol("OTP_STORE");',
+    '',
     'export type RequestOtpResult = {',
     '  ok: true;',
     '  expiresInSeconds: number;',
     '};',
     '',
-    'export type VerifyOtpResult =',
-    '  | { ok: true; accessToken: string }',
-    '  | { ok: false; reason: "INVALID_OTP" };',
+    'export type VerifyOtpResult = {',
+    '  ok: true;',
+    '  accessToken: string;',
+    '};',
     '',
-    'export type OtpSessionMetadata = {',
+    'export type OtpVerificationResult =',
+    '  | "verified"',
+    '  | "not_found"',
+    '  | "expired"',
+    '  | "too_many_attempts"',
+    '  | "invalid";',
+    '',
+    'export type SaveOtpInput = {',
     '  phoneNumber: string;',
+    '  otp: string;',
+    '  ttlSeconds: number;',
+    '  maxAttempts: number;',
+    '};',
+    '',
+    'export type OtpRecord = {',
+    '  phoneNumber: string;',
+    '  otpHash: string;',
     '  expiresAt: number;',
-    '  attemptsRemaining: number;',
+    '  attempts: number;',
+    '  maxAttempts: number;',
+    '};',
+    '',
+    'export type OtpStore = {',
+    '  saveOtp(input: SaveOtpInput): Promise<void>;',
+    '  getOtp(phoneNumber: string): Promise<OtpRecord | null>;',
+    '  deleteOtp(phoneNumber: string): Promise<void>;',
+    '  verifyOtp(phoneNumber: string, otp: string): Promise<OtpVerificationResult>;',
     '};',
   ].join('\n');
 }
@@ -520,10 +845,16 @@ function buildPaymentWebhookModuleSource(): string {
     "import { PaymentWebhookService } from './payment-webhook.service';",
     "import { EmailProvider } from './providers/email.provider';",
     "import { SignatureVerifierProvider } from './providers/signature-verifier.provider';",
+    "import { SubscriptionRepository } from './providers/subscription.repository';",
     '',
     '@Module({',
     '  controllers: [PaymentWebhookController],',
-    '  providers: [PaymentWebhookService, SignatureVerifierProvider, EmailProvider],',
+    '  providers: [',
+    '    PaymentWebhookService,',
+    '    SignatureVerifierProvider,',
+    '    SubscriptionRepository,',
+    '    EmailProvider,',
+    '  ],',
     '  exports: [PaymentWebhookService],',
     '})',
     'export class PaymentWebhookModule {}',
@@ -535,6 +866,7 @@ function buildPaymentWebhookControllerSource(): string {
     "import { Body, Controller, Headers, Post } from '@nestjs/common';",
     "import { PaymentWebhookDto } from './dto/payment-webhook.dto';",
     "import { PaymentWebhookService } from './payment-webhook.service';",
+    "import { PAYMENT_WEBHOOK_SIGNATURE_HEADER } from './types/payment-webhook.types';",
     '',
     "@Controller('webhooks/payment')",
     'export class PaymentWebhookController {',
@@ -543,7 +875,7 @@ function buildPaymentWebhookControllerSource(): string {
     '  @Post()',
     '  handlePaymentWebhook(',
     '    @Body() dto: PaymentWebhookDto,',
-    '    @Headers("x-provider-signature") signature?: string,',
+    '    @Headers(PAYMENT_WEBHOOK_SIGNATURE_HEADER) signature?: string,',
     '  ) {',
     '    return this.paymentWebhookService.handleWebhook(dto, signature);',
     '  }',
@@ -553,16 +885,18 @@ function buildPaymentWebhookControllerSource(): string {
 
 function buildPaymentWebhookServiceSource(): string {
   return [
-    "import { Injectable } from '@nestjs/common';",
+    "import { BadRequestException, Injectable } from '@nestjs/common';",
     "import { PaymentWebhookDto } from './dto/payment-webhook.dto';",
     "import { EmailProvider } from './providers/email.provider';",
     "import { SignatureVerifierProvider } from './providers/signature-verifier.provider';",
-    "import type { PaymentWebhookResult } from './types/payment-webhook.types';",
+    "import { SubscriptionRepository } from './providers/subscription.repository';",
+    "import type { PaymentWebhookResult, ReceiptEmailInput } from './types/payment-webhook.types';",
     '',
     '@Injectable()',
     'export class PaymentWebhookService {',
     '  constructor(',
     '    private readonly signatureVerifier: SignatureVerifierProvider,',
+    '    private readonly subscriptionRepository: SubscriptionRepository,',
     '    private readonly emailProvider: EmailProvider,',
     '  ) {}',
     '',
@@ -570,22 +904,55 @@ function buildPaymentWebhookServiceSource(): string {
     '    dto: PaymentWebhookDto,',
     '    signature?: string,',
     '  ): Promise<PaymentWebhookResult> {',
-    '    const signatureValid = this.signatureVerifier.verify(',
-    '      JSON.stringify(dto),',
-    '      signature,',
-    '    );',
-    '',
-    '    if (!signatureValid) {',
-    '      return { accepted: false, reason: "INVALID_SIGNATURE" };',
-    '    }',
+    '    this.signatureVerifier.verifyOrThrow(JSON.stringify(dto), signature);',
     '',
     '    if (dto.type !== "payment.succeeded") {',
     '      return { accepted: true, action: "ignored" };',
     '    }',
     '',
-    '    await this.emailProvider.sendPaymentReceipt(dto);',
+    '    const customerId = this.readRequiredString(dto.data, "customerId");',
+    '    const customerEmail = this.readOptionalString(dto.data, "customerEmail")',
+    '      ?? this.readOptionalString(dto.data, "email");',
+    '',
+    '    await this.subscriptionRepository.markPaymentSucceeded({',
+    '      customerId,',
+    '      eventId: dto.id,',
+    '      payload: dto.data,',
+    '    });',
+    '',
+    '    if (customerEmail) {',
+    '      const emailInput: ReceiptEmailInput = {',
+    '        eventId: dto.id,',
+    '        customerId,',
+    '        customerEmail,',
+    '      };',
+    '',
+    '      await this.emailProvider.sendPaymentReceipt(emailInput);',
+    '    }',
     '',
     '    return { accepted: true, action: "payment_recorded" };',
+    '  }',
+    '',
+    '  private readRequiredString(',
+    '    payload: Record<string, unknown>,',
+    '    key: string,',
+    '  ): string {',
+    '    const value = payload[key];',
+    '',
+    '    if (typeof value !== "string" || !value.trim()) {',
+    '      throw new BadRequestException(`${key} is required for payment.succeeded events.`);',
+    '    }',
+    '',
+    '    return value.trim();',
+    '  }',
+    '',
+    '  private readOptionalString(',
+    '    payload: Record<string, unknown>,',
+    '    key: string,',
+    '  ): string | null {',
+    '    const value = payload[key];',
+    '',
+    '    return typeof value === "string" && value.trim() ? value.trim() : null;',
     '  }',
     '}',
   ].join('\n');
@@ -593,10 +960,22 @@ function buildPaymentWebhookServiceSource(): string {
 
 function buildPaymentWebhookDtoSource(): string {
   return [
+    "import { IsNotEmpty, IsNumber, IsObject, IsOptional, IsString } from 'class-validator';",
+    '',
     'export class PaymentWebhookDto {',
+    '  @IsString()',
+    '  @IsNotEmpty()',
     '  id!: string;',
+    '',
+    '  @IsString()',
+    '  @IsNotEmpty()',
     '  type!: string;',
+    '',
+    '  @IsObject()',
     '  data!: Record<string, unknown>;',
+    '',
+    '  @IsOptional()',
+    '  @IsNumber()',
     '  created?: number;',
     '}',
   ].join('\n');
@@ -604,20 +983,20 @@ function buildPaymentWebhookDtoSource(): string {
 
 function buildSignatureVerifierProviderSource(): string {
   return [
-    "import { Injectable } from '@nestjs/common';",
+    "import { Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';",
     "import { createHmac, timingSafeEqual } from 'crypto';",
     '',
     '@Injectable()',
     'export class SignatureVerifierProvider {',
-    '  verify(payload: string, signature?: string): boolean {',
+    '  verifyOrThrow(payload: string, signature?: string): void {',
     '    const secret = process.env.WEBHOOK_SIGNING_SECRET;',
     '',
     '    if (!secret) {',
-    '      throw new Error("WEBHOOK_SIGNING_SECRET is required to verify payment webhooks.");',
+    '      throw new ServiceUnavailableException("WEBHOOK_SIGNING_SECRET is required to verify payment webhooks.");',
     '    }',
     '',
     '    if (!signature) {',
-    '      return false;',
+    '      throw new UnauthorizedException("Missing payment webhook signature.");',
     '    }',
     '',
     '    const expected = createHmac("sha256", secret)',
@@ -625,7 +1004,9 @@ function buildSignatureVerifierProviderSource(): string {
     '      .digest("hex");',
     '    const received = signature.replace(/^sha256=/, "");',
     '',
-    '    return this.safeCompare(received, expected);',
+    '    if (!this.safeCompare(received, expected)) {',
+    '      throw new UnauthorizedException("Invalid payment webhook signature.");',
+    '    }',
     '  }',
     '',
     '  private safeCompare(received: string, expected: string): boolean {',
@@ -644,27 +1025,22 @@ function buildSignatureVerifierProviderSource(): string {
 
 function buildEmailProviderSource(): string {
   return [
-    "import { Injectable } from '@nestjs/common';",
-    "import { PaymentWebhookDto } from '../dto/payment-webhook.dto';",
+    "import { Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';",
+    "import type { ReceiptEmailInput } from '../types/payment-webhook.types';",
     '',
     '@Injectable()',
     'export class EmailProvider {',
-    '  async sendPaymentReceipt(webhook: PaymentWebhookDto): Promise<void> {',
+    '  async sendPaymentReceipt(input: ReceiptEmailInput): Promise<void> {',
     '    const endpoint = process.env.EMAIL_PROVIDER_URL;',
     '    const apiKey = process.env.EMAIL_PROVIDER_API_KEY;',
     '    const from = process.env.PAYMENT_RECEIPT_FROM ?? "billing@example.com";',
-    '    const customerEmail = this.readCustomerEmail(webhook);',
     '',
     '    if (!endpoint) {',
-    '      throw new Error("EMAIL_PROVIDER_URL is required to send payment emails.");',
+    '      throw new ServiceUnavailableException("EMAIL_PROVIDER_URL is required to send payment emails.");',
     '    }',
     '',
     '    if (!apiKey) {',
-    '      throw new Error("EMAIL_PROVIDER_API_KEY is required to send payment emails.");',
-    '    }',
-    '',
-    '    if (!customerEmail) {',
-    '      return;',
+    '      throw new ServiceUnavailableException("EMAIL_PROVIDER_API_KEY is required to send payment emails.");',
     '    }',
     '',
     '    const response = await fetch(endpoint, {',
@@ -675,31 +1051,59 @@ function buildEmailProviderSource(): string {
     '      },',
     '      body: JSON.stringify({',
     '        from,',
-    '        to: customerEmail,',
+    '        to: input.customerEmail,',
     '        subject: "Payment received",',
-    '        text: `Payment event ${webhook.id} was processed successfully.`,',
+    '        text: `Payment event ${input.eventId} for customer ${input.customerId} was processed successfully.`,',
     '      }),',
     '    });',
     '',
     '    if (!response.ok) {',
-    '      throw new Error(`Email provider request failed with ${response.status}`);',
+    '      throw new InternalServerErrorException(`Email provider request failed with ${response.status}`);',
     '    }',
-    '  }',
-    '',
-    '  private readCustomerEmail(webhook: PaymentWebhookDto): string | null {',
-    '    const email = webhook.data["customerEmail"] ?? webhook.data["email"];',
-    '',
-    '    return typeof email === "string" && email.trim() ? email.trim() : null;',
     '  }',
     '}',
   ].join('\n');
 }
 
-function buildPaymentWebhookTypesSource(): string {
+function buildSubscriptionRepositorySource(): string {
   return [
+    "import { Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';",
+    "import type { PaymentSubscriptionUpdate } from '../types/payment-webhook.types';",
+    '',
+    '@Injectable()',
+    'export class SubscriptionRepository {',
+    '  async markPaymentSucceeded(input: PaymentSubscriptionUpdate): Promise<void> {',
+    '    const endpoint = process.env.SUBSCRIPTION_API_URL;',
+    '',
+    '    if (!endpoint) {',
+    '      throw new ServiceUnavailableException("SUBSCRIPTION_API_URL is required to update subscriptions.");',
+    '    }',
+    '',
+    '    const response = await fetch(`${endpoint}/${encodeURIComponent(input.customerId)}`, {',
+    '      method: "PATCH",',
+    '      headers: { "Content-Type": "application/json" },',
+    '      body: JSON.stringify({',
+    '        status: "active",',
+    '        lastPaymentEventId: input.eventId,',
+    '        paymentPayload: input.payload,',
+    '      }),',
+    '    });',
+    '',
+    '    if (!response.ok) {',
+    '      throw new InternalServerErrorException(`Subscription update failed with ${response.status}`);',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildPaymentWebhookTypesSource(signatureHeaderName: string): string {
+  return [
+    `export const PAYMENT_WEBHOOK_SIGNATURE_HEADER = process.env.WEBHOOK_SIGNATURE_HEADER ?? ${JSON.stringify(signatureHeaderName)};`,
+    '',
     'export type PaymentWebhookResult =',
-    '  | { accepted: true; action: "payment_recorded" | "ignored" }',
-    '  | { accepted: false; reason: "INVALID_SIGNATURE" };',
+    '  | { accepted: true; action: "payment_recorded" }',
+    '  | { accepted: true; action: "ignored" };',
     '',
     'export type PaymentProviderEvent = {',
     '  id: string;',
@@ -707,29 +1111,109 @@ function buildPaymentWebhookTypesSource(): string {
     '  data: Record<string, unknown>;',
     '  created?: number;',
     '};',
+    '',
+    'export type PaymentSubscriptionUpdate = {',
+    '  customerId: string;',
+    '  eventId: string;',
+    '  payload: Record<string, unknown>;',
+    '};',
+    '',
+    'export type ReceiptEmailInput = {',
+    '  eventId: string;',
+    '  customerId: string;',
+    '  customerEmail: string;',
+    '};',
   ].join('\n');
 }
 
 function buildOtpAuthReadme(context: GeneratorContext): string {
+  const otpLength = getOtpLength(context.nodes);
+  const ttlSeconds = getOtpTtlSeconds(context.nodes);
+
   return [
     '# OTP Auth Module',
     '',
     `Generated from FORGE workflow "${context.workflow.name}".`,
     '',
+    'This module exposes a phone-number OTP login flow with request and verify endpoints.',
+    '',
     '## Files',
     '',
     '- `otp-auth.module.ts` wires the controller, service, and providers.',
     '- `otp-auth.controller.ts` exposes `POST /auth/otp/request` and `POST /auth/otp/verify`.',
-    '- `otp-auth.service.ts` coordinates OTP creation, delivery, verification, and JWT signing.',
-    '- `providers/otp-store.provider.ts` is an in-memory OTP store. Replace it with Redis or Postgres for production.',
-    '- `providers/sms.provider.ts` is the SMS integration boundary.',
+    '- `otp-auth.service.ts` coordinates OTP creation, delivery, verification, and JWT signing through `JwtService`.',
+    '- `providers/otp-store.provider.ts` is a demo-only in-memory OTP store.',
+    '- `providers/sms.provider.ts` is a generic SMS provider boundary with a `sendOtp` method.',
     '',
-    '## Usage',
+    '## Install dependencies',
     '',
-    '1. Copy `generated/otp-auth` into your NestJS source tree.',
-    '2. Import `OtpAuthModule` in your application module.',
-    '3. Add the variables from `.env.example` to your runtime environment.',
-    '4. Replace `SmsProvider.deliver` with your SMS provider implementation.',
+    '```bash',
+    'npm install @nestjs/jwt class-validator class-transformer',
+    '```',
+    '',
+    'Enable NestJS validation globally if your app has not already done so:',
+    '',
+    '```ts',
+    'app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));',
+    '```',
+    '',
+    '## Register the module',
+    '',
+    '```ts',
+    "import { Module } from '@nestjs/common';",
+    "import { OtpAuthModule } from './generated/otp-auth/otp-auth.module';",
+    '',
+    '@Module({',
+    '  imports: [OtpAuthModule],',
+    '})',
+    'export class AppModule {}',
+    '```',
+    '',
+    '## Required environment variables',
+    '',
+    '- `JWT_SECRET`',
+    '- `JWT_EXPIRES_IN`',
+    '- `OTP_HASH_SECRET`',
+    '- `OTP_TTL_SECONDS`',
+    '- `SMS_PROVIDER_URL`',
+    '- `SMS_PROVIDER_API_KEY`',
+    '',
+    '## Example requests',
+    '',
+    '```json',
+    '{ "phoneNumber": "+15551234567" }',
+    '```',
+    '',
+    '```json',
+    `{ "phoneNumber": "+15551234567", "otp": "${'0'.repeat(otpLength)}" }`,
+    '```',
+    '',
+    '## Example responses',
+    '',
+    '```json',
+    `{ "ok": true, "expiresInSeconds": ${ttlSeconds} }`,
+    '```',
+    '',
+    '```json',
+    '{ "ok": true, "accessToken": "jwt_token" }',
+    '```',
+    '',
+    '## Error behavior',
+    '',
+    'Invalid, expired, or over-attempted OTP verification throws `UnauthorizedException`.',
+    'SMS delivery failures throw `InternalServerErrorException` after deleting the stored OTP.',
+    'Missing JWT or provider configuration throws `ServiceUnavailableException`.',
+    '',
+    '## Production replacement points',
+    '',
+    '- `InMemoryOtpStore` is demo-only, loses data on restart, and does not work across multiple app instances.',
+    '- Replace `InMemoryOtpStore` with Redis or another expiring distributed store before production.',
+    '- Replace the generic `SmsProvider.sendOtp` HTTP call with your SMS provider contract.',
+    '',
+    '## Known limitations',
+    '',
+    '- Phone-number format validation is intentionally minimal to avoid rejecting valid international numbers.',
+    '- OTPs are hashed at rest in the demo store, but the store itself is not production-safe.',
     '',
     'No provider credentials are generated. Secret values are represented with placeholders only.',
     '',
@@ -737,10 +1221,14 @@ function buildOtpAuthReadme(context: GeneratorContext): string {
 }
 
 function buildPaymentWebhookReadme(context: GeneratorContext): string {
+  const signatureHeaderName = getSignatureHeaderName(context.nodes);
+
   return [
     '# Payment Webhook Module',
     '',
     `Generated from FORGE workflow "${context.workflow.name}".`,
+    '',
+    'This module verifies payment webhook signatures, processes `payment.succeeded` events, updates a subscription record, and sends a receipt email when an email address is present.',
     '',
     '## Files',
     '',
@@ -748,15 +1236,90 @@ function buildPaymentWebhookReadme(context: GeneratorContext): string {
     '- `payment-webhook.controller.ts` exposes `POST /webhooks/payment`.',
     '- `payment-webhook.service.ts` verifies signatures and handles successful payments.',
     '- `providers/signature-verifier.provider.ts` validates HMAC SHA-256 webhook signatures.',
-    '- `providers/email.provider.ts` is the receipt email integration boundary.',
+    '- `providers/subscription.repository.ts` is a repository boundary for subscription updates.',
+    '- `providers/email.provider.ts` is a generic receipt email provider boundary.',
     '',
-    '## Usage',
+    '## Install dependencies',
     '',
-    '1. Copy `generated/payment-webhook` into your NestJS source tree.',
-    '2. Import `PaymentWebhookModule` in your application module.',
-    '3. Add the variables from `.env.example` to your runtime environment.',
-    '4. Replace `EmailProvider.deliver` with your email provider implementation.',
-    '5. If your payment provider signs the raw request body, adapt the controller to pass that raw body into `SignatureVerifierProvider.verify`.',
+    '```bash',
+    'npm install class-validator class-transformer',
+    '```',
+    '',
+    'Enable NestJS validation globally if your app has not already done so:',
+    '',
+    '```ts',
+    'app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));',
+    '```',
+    '',
+    '## Register the module',
+    '',
+    '```ts',
+    "import { Module } from '@nestjs/common';",
+    "import { PaymentWebhookModule } from './generated/payment-webhook/payment-webhook.module';",
+    '',
+    '@Module({',
+    '  imports: [PaymentWebhookModule],',
+    '})',
+    'export class AppModule {}',
+    '```',
+    '',
+    '## Required environment variables',
+    '',
+    `- \`WEBHOOK_SIGNATURE_HEADER\` defaults to \`${signatureHeaderName}\` in generated code`,
+    '- `WEBHOOK_SIGNING_SECRET`',
+    '- `SUBSCRIPTION_API_URL`',
+    '- `EMAIL_PROVIDER_URL`',
+    '- `EMAIL_PROVIDER_API_KEY`',
+    '- `PAYMENT_RECEIPT_FROM`',
+    '',
+    '## Example request',
+    '',
+    'Headers:',
+    '',
+    '```',
+    `${signatureHeaderName}: sha256=<hmac_sha256_signature>`,
+    '```',
+    '',
+    'Body:',
+    '',
+    '```json',
+    '{',
+    '  "id": "evt_123",',
+    '  "type": "payment.succeeded",',
+    '  "data": {',
+    '    "customerId": "cus_123",',
+    '    "customerEmail": "customer@example.com"',
+    '  }',
+    '}',
+    '```',
+    '',
+    '## Example responses',
+    '',
+    '```json',
+    '{ "accepted": true, "action": "payment_recorded" }',
+    '```',
+    '',
+    '```json',
+    '{ "accepted": true, "action": "ignored" }',
+    '```',
+    '',
+    '## Error behavior',
+    '',
+    '- Missing or invalid signatures throw `UnauthorizedException`.',
+    '- Missing signing or provider configuration throws `ServiceUnavailableException`.',
+    '- Missing `customerId` on `payment.succeeded` throws `BadRequestException`.',
+    '- Subscription update and email provider failures throw `InternalServerErrorException`.',
+    '',
+    '## Production replacement points',
+    '',
+    '- `SignatureVerifierProvider` uses a generic HMAC SHA-256 signature format. Adapt it to your provider if the provider signs raw request bodies or uses timestamped signatures.',
+    '- `SubscriptionRepository` calls a configured HTTP endpoint. Replace it with your database repository if subscriptions live in your app database.',
+    '- `EmailProvider` is generic and should be adapted to your email provider contract.',
+    '',
+    '## Known limitations',
+    '',
+    '- Most payment providers require raw-body signature verification. If yours does, pass the raw body to `SignatureVerifierProvider.verifyOrThrow` instead of `JSON.stringify(dto)`.',
+    '- Receipt email sending is skipped when the payload does not include `customerEmail` or `email`.',
     '',
     'No provider credentials are generated. Secret values are represented with placeholders only.',
     '',
@@ -821,6 +1384,39 @@ function isOtpAuthWorkflow(nodes: CanvasNode[]): boolean {
   );
 }
 
+function getUnsupportedBackendNodes(nodes: CanvasNode[]): CanvasNode[] {
+  return nodes.filter(
+    (node) => !SUPPORTED_BACKEND_NODE_TYPES.has(node.nodeType),
+  );
+}
+
+function getOtpLength(nodes: CanvasNode[]): number {
+  const value = nodes.find((node) => node.nodeType === 'generateOtp')?.config
+    .otpLength;
+
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? Math.min(Math.max(value, 4), 10)
+    : 6;
+}
+
+function getOtpTtlSeconds(nodes: CanvasNode[]): number {
+  const value = nodes.find((node) => node.nodeType === 'generateOtp')?.config
+    .expirySeconds;
+
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : 300;
+}
+
+function getSignatureHeaderName(nodes: CanvasNode[]): string {
+  const value = nodes.find((node) => node.nodeType === 'verifySignature')
+    ?.config.headerName;
+
+  return typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : 'x-provider-signature';
+}
+
 function readCanvasNode(value: unknown): CanvasNode {
   const node = isRecord(value) ? value : {};
   const data = isRecord(node.data) ? node.data : {};
@@ -865,6 +1461,26 @@ function readCanvasEdge(value: unknown): CanvasEdge {
 
 function stableStringify(value: unknown, space = 0): string {
   return JSON.stringify(sortJson(value), null, space);
+}
+
+function toPascalCase(value: string): string {
+  const identifier = value
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+
+  return identifier || 'GeneratedWorkflow';
+}
+
+function toKebabCase(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return slug || 'generated-workflow';
 }
 
 function sortJson(value: unknown): unknown {

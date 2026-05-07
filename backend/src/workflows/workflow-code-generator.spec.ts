@@ -58,6 +58,19 @@ describe('buildWorkflowArtifacts', () => {
       )?.content,
     ).toContain("@Controller('auth/otp')");
     expect(
+      artifacts.find((artifact) => artifact.name.endsWith('otp-auth.module.ts'))
+        ?.content,
+    ).toContain('JwtModule.register');
+    expect(
+      artifacts.find((artifact) => artifact.name.endsWith('verify-otp.dto.ts'))
+        ?.content,
+    ).toContain('@Matches(/^\\d{6}$/');
+    expect(
+      artifacts.find((artifact) =>
+        artifact.name.endsWith('otp-store.provider.ts'),
+      )?.content,
+    ).toContain('implements OtpStore');
+    expect(
       artifacts.find((artifact) => artifact.name.endsWith('workflow.json')),
     ).toBeUndefined();
   });
@@ -79,6 +92,7 @@ describe('buildWorkflowArtifacts', () => {
       'generated/payment-webhook/dto/payment-webhook.dto.ts',
       'generated/payment-webhook/providers/signature-verifier.provider.ts',
       'generated/payment-webhook/providers/email.provider.ts',
+      'generated/payment-webhook/providers/subscription.repository.ts',
       'generated/payment-webhook/types/payment-webhook.types.ts',
       'generated/payment-webhook/README.md',
       'generated/payment-webhook/.env.example',
@@ -87,7 +101,46 @@ describe('buildWorkflowArtifacts', () => {
       artifacts.find((artifact) =>
         artifact.name.endsWith('signature-verifier.provider.ts'),
       )?.content,
-    ).toContain('timingSafeEqual');
+    ).toContain('verifyOrThrow');
+    expect(
+      artifacts.find((artifact) =>
+        artifact.name.endsWith('payment-webhook.service.ts'),
+      )?.content,
+    ).toContain('markPaymentSucceeded');
+  });
+
+  it('generates a warning-backed generic module for known supported nodes', () => {
+    const artifacts = buildWorkflowArtifacts(
+      createWorkflow('User Onboarding Flow'),
+      createVersion([
+        createNode('signup-trigger', 'httpTrigger', 'Create User'),
+        createNode('write-user', 'databaseWrite', 'Database Write'),
+        createNode('send-email', 'sendEmail', 'Send Email'),
+      ]),
+      'backend_module',
+    );
+
+    expect(
+      artifacts.some((artifact) =>
+        artifact.name.endsWith('GENERATION_WARNINGS.md'),
+      ),
+    ).toBe(true);
+    expect(
+      artifacts.find((artifact) => artifact.name.endsWith('.service.ts'))
+        ?.content,
+    ).toContain('nodeCount: 3');
+  });
+
+  it('rejects unsupported nodes with a clear message', () => {
+    expect(() =>
+      buildWorkflowArtifacts(
+        createWorkflow('Unsupported Flow'),
+        createVersion([createNode('custom', 'unsupportedNode', 'Custom Node')]),
+        'backend_module',
+      ),
+    ).toThrow(
+      'This workflow contains nodes that are not supported for backend code generation yet',
+    );
   });
 });
 
