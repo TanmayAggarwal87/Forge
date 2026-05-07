@@ -8,8 +8,9 @@ import {
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import type { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import type { DataSource, Repository } from 'typeorm';
+import { shouldRunDatabaseMigrations } from '../database/database.config';
 import {
   AuditLogEntity,
   GeneratedArtifactEntity,
@@ -176,6 +177,9 @@ export class InMemoryStoreService implements OnModuleInit {
     @Optional()
     @InjectRepository(AuditLogEntity)
     private readonly auditLogRepository?: Repository<AuditLogEntity>,
+    @Optional()
+    @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -1112,6 +1116,8 @@ export class InMemoryStoreService implements OnModuleInit {
       return;
     }
 
+    await this.ensureDatabaseSchema();
+
     const [
       users,
       sessions,
@@ -1544,6 +1550,14 @@ export class InMemoryStoreService implements OnModuleInit {
         createdAt: new Date(log.createdAt),
       })),
     );
+  }
+
+  private async ensureDatabaseSchema(): Promise<void> {
+    if (!this.dataSource?.isInitialized || !shouldRunDatabaseMigrations()) {
+      return;
+    }
+
+    await this.dataSource.runMigrations({ transaction: 'all' });
   }
 }
 

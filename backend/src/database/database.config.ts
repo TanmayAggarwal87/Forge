@@ -1,5 +1,7 @@
-import 'dotenv/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+import { CreateForgePersistenceTables1788770000000 } from './migrations/1788770000000-CreateForgePersistenceTables';
 import {
   AuditLogEntity,
   GeneratedArtifactEntity,
@@ -14,6 +16,14 @@ import {
   WorkflowVersionEntity,
   WorkspaceEntity,
 } from './entities';
+
+for (const envPath of [
+  resolve(process.cwd(), '.env'),
+  resolve(process.cwd(), 'backend', '.env'),
+  resolve(__dirname, '..', '..', '.env'),
+]) {
+  config({ path: envPath, quiet: true });
+}
 
 export const databaseEntities = [
   AuditLogEntity,
@@ -32,10 +42,6 @@ export const databaseEntities = [
 
 export function createTypeOrmOptions(): TypeOrmModuleOptions {
   const databaseUrl = process.env.DATABASE_URL;
-  const shouldRunMigrations =
-    process.env.TYPEORM_MIGRATIONS_RUN === 'true' ||
-    (process.env.TYPEORM_MIGRATIONS_RUN !== 'false' &&
-      process.env.NODE_ENV !== 'production');
 
   return {
     type: 'postgres',
@@ -48,9 +54,9 @@ export function createTypeOrmOptions(): TypeOrmModuleOptions {
     password: databaseUrl ? undefined : (process.env.DB_PASSWORD ?? 'password'),
     database: databaseUrl ? undefined : (process.env.DB_NAME ?? 'forge'),
     entities: databaseEntities,
-    migrations: [__dirname + '/migrations/*{.ts,.js}'],
+    migrations: [CreateForgePersistenceTables1788770000000],
     synchronize: false,
-    migrationsRun: shouldRunMigrations,
+    migrationsRun: shouldRunDatabaseMigrations(),
     ssl:
       process.env.DB_SSL === 'true'
         ? {
@@ -59,4 +65,12 @@ export function createTypeOrmOptions(): TypeOrmModuleOptions {
           }
         : false,
   };
+}
+
+export function shouldRunDatabaseMigrations(): boolean {
+  return (
+    process.env.TYPEORM_MIGRATIONS_RUN === 'true' ||
+    (process.env.TYPEORM_MIGRATIONS_RUN !== 'false' &&
+      process.env.NODE_ENV !== 'production')
+  );
 }
