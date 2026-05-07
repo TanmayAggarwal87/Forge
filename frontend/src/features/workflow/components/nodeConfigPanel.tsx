@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { nodeDefinitionsByType } from "@/features/workflow/nodeRegistry";
@@ -13,8 +13,6 @@ type NodeConfigPanelProps = {
 };
 
 export function NodeConfigPanel({ workspaceId, node }: NodeConfigPanelProps) {
-  const updateNodeData = useWorkflowStore((state) => state.updateNodeData);
-
   if (!node) {
     return (
       <aside className="flex h-full items-center justify-center border-l border-slate-200 bg-white p-6 text-sm text-slate-500">
@@ -23,7 +21,36 @@ export function NodeConfigPanel({ workspaceId, node }: NodeConfigPanelProps) {
     );
   }
 
+  return <NodeConfigPanelContent workspaceId={workspaceId} node={node} />;
+}
+
+function NodeConfigPanelContent({
+  workspaceId,
+  node,
+}: {
+  workspaceId: string;
+  node: WorkflowNode;
+}) {
+  const updateNodeData = useWorkflowStore((state) => state.updateNodeData);
   const definition = nodeDefinitionsByType[node.data.type];
+  const handleConfigChange = useCallback(
+    (values: Record<string, string | number>) => {
+      updateNodeData(workspaceId, node.id, (currentNode) => {
+        if (areConfigsEqual(currentNode.data.config, values)) {
+          return currentNode;
+        }
+
+        return {
+          ...currentNode,
+          data: {
+            ...currentNode.data,
+            config: values,
+          },
+        };
+      });
+    },
+    [node.id, updateNodeData, workspaceId],
+  );
 
   return (
     <aside className="h-full border-l border-slate-200 bg-white">
@@ -34,18 +61,7 @@ export function NodeConfigPanel({ workspaceId, node }: NodeConfigPanelProps) {
         <h2 className="mt-2 text-lg font-semibold text-slate-900">{node.data.label}</h2>
       </div>
 
-      <ConfigForm
-        node={node}
-        onChange={(values) => {
-          updateNodeData(workspaceId, node.id, (currentNode) => ({
-            ...currentNode,
-            data: {
-              ...currentNode.data,
-              config: values,
-            },
-          }));
-        }}
-      />
+      <ConfigForm node={node} onChange={handleConfigChange} />
 
       <div className="border-t border-slate-200 p-4">
         <p className="text-xs leading-5 text-slate-500">{definition.description}</p>
@@ -75,13 +91,13 @@ function ConfigForm({ node, onChange }: ConfigFormProps) {
   useEffect(() => {
     const syncValues = async () => {
       const parsed = await definition.schema.safeParseAsync(values);
-      if (parsed.success) {
+      if (parsed.success && !areConfigsEqual(node.data.config, parsed.data)) {
         onChange(parsed.data as Record<string, string | number>);
       }
     };
 
     void syncValues();
-  }, [definition.schema, onChange, values]);
+  }, [definition.schema, node.data.config, onChange, values]);
 
   return (
     <form className="space-y-4 p-4">
@@ -131,4 +147,27 @@ function ConfigForm({ node, onChange }: ConfigFormProps) {
       })}
     </form>
   );
+}
+
+function areConfigsEqual(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  return stableStringify(left) === stableStringify(right);
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
 }
