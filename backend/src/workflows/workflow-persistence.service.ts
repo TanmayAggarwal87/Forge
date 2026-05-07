@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import type { Repository } from 'typeorm';
 import {
   AuditLogEntity,
+  GeneratedArtifactEntity,
   WorkflowEntity,
   WorkflowTemplateEntity,
   WorkflowVersionEntity,
@@ -44,6 +45,9 @@ export class WorkflowPersistenceService {
     @Optional()
     @InjectRepository(AuditLogEntity)
     private readonly auditLogRepository?: Repository<AuditLogEntity>,
+    @Optional()
+    @InjectRepository(GeneratedArtifactEntity)
+    private readonly generatedArtifactRepository?: Repository<GeneratedArtifactEntity>,
   ) {}
 
   async listWorkspaceWorkflows(workspaceId: string, userId: string) {
@@ -217,6 +221,41 @@ export class WorkflowPersistenceService {
       version,
       graph,
     };
+  }
+
+  async generateArtifacts(workflowId: string, userId: string) {
+    const workflow = await this.getWorkflowForUser(workflowId, userId);
+    const draftVersion = workflow.draftVersionId
+      ? await this.requireWorkflowVersionRepository().findOne({
+          where: { id: workflow.draftVersionId },
+        })
+      : null;
+
+    if (!draftVersion) {
+      throw new NotFoundException('Workflow draft version was not found.');
+    }
+
+    const generatedArtifacts = buildWorkflowArtifacts(workflow, draftVersion);
+
+    if (this.generatedArtifactRepository) {
+      await this.generatedArtifactRepository.delete({
+        workflowVersionId: draftVersion.id,
+      });
+      await this.generatedArtifactRepository.save(generatedArtifacts);
+    }
+
+    await this.recordAudit(
+      userId,
+      workflow.workspaceId,
+      workflow.id,
+      'workflow.artifacts_generated',
+      {
+        workflowVersionId: draftVersion.id,
+        artifactCount: generatedArtifacts.length,
+      },
+    );
+
+    return { generatedArtifacts };
   }
 
   async listTemplates() {
@@ -513,4 +552,345 @@ export class WorkflowPersistenceService {
 
     return slug || randomUUID();
   }
+}
+
+type CanvasNode = {
+  id: string;
+  label: string;
+  nodeType: string;
+  config: Record<string, unknown>;
+};
+
+type CanvasEdge = {
+  id: string;
+  source: string | null;
+  target: string | null;
+  label: string | null;
+};
+
+function buildWorkflowArtifacts(
+  workflow: WorkflowEntity,
+  version: WorkflowVersionEntity,
+): GeneratedArtifactEntity[] {
+  const nodes = version.nodesJson.map(readCanvasNode);
+  const edges = version.edgesJson.map(readCanvasEdge);
+  const triggerNode =
+    nodes.find((node) => node.nodeType === 'httpTrigger') ?? null;
+  const method = readConfigString(triggerNode, 'method', 'POST').toUpperCase();
+  const path = normalizePath(
+    readConfigString(triggerNode, 'path', '/workflow/execute'),
+  );
+  const operationId = `${toIdentifier(path)}Workflow`;
+  const projectId = workflow.projectId ?? workflow.workspaceId;
+  const artifacts = [
+    createArtifact({
+      projectId,
+      workflowId: workflow.id,
+      workflowVersionId: version.id,
+      type: 'openapi',
+      name: 'openapi.json',
+      contentType: 'application/json',
+      value: buildOpenApi({
+        workflow,
+        version,
+        nodes,
+        edges,
+        method,
+        path,
+        operationId,
+      }),
+    }),
+    createArtifact({
+      projectId,
+      workflowId: workflow.id,
+      workflowVersionId: version.id,
+      type: 'endpoint_contract',
+      name: 'workflow-graph.json',
+      contentType: 'application/json',
+      value: {
+        workflow: {
+          id: workflow.id,
+          name: workflow.name,
+          status: workflow.status,
+          versionNumber: version.versionNumber,
+        },
+        endpoint: {
+          method,
+          path,
+          operationId,
+        },
+        graph: { nodes, edges },
+      },
+    }),
+    createArtifact({
+      projectId,
+      workflowId: workflow.id,
+      workflowVersionId: version.id,
+      type: 'dto_schema',
+      name: 'workflow-types.ts',
+      contentType: 'text/typescript',
+      value: buildTypesSource(workflow, nodes, edges),
+    }),
+    createArtifact({
+      projectId,
+      workflowId: workflow.id,
+      workflowVersionId: version.id,
+      type: 'sdk_stub',
+      name: 'workflow-client.ts',
+      contentType: 'text/typescript',
+      value: buildClientSource(operationId, method, path),
+    }),
+    createArtifact({
+      projectId,
+      workflowId: workflow.id,
+      workflowVersionId: version.id,
+      type: 'code_preview',
+      name: 'nest-route.ts',
+      contentType: 'text/typescript',
+      value: buildRouteSource(operationId, method, path, nodes),
+    }),
+  ];
+
+  return artifacts;
+}
+
+function buildOpenApi(input: {
+  workflow: WorkflowEntity;
+  version: WorkflowVersionEntity;
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  method: string;
+  path: string;
+  operationId: string;
+}) {
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: `${input.workflow.name} API`,
+      version: `v${input.version.versionNumber}`,
+    },
+    paths: {
+      [input.path]: {
+        [input.method.toLowerCase()]: {
+          operationId: input.operationId,
+          summary: `Generated endpoint for ${input.workflow.name}.`,
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { type: 'object', additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Workflow response.',
+              content: {
+                'application/json': {
+                  schema: { type: 'object', additionalProperties: true },
+                },
+              },
+            },
+          },
+          'x-forge': {
+            workflowId: input.workflow.id,
+            workflowVersionId: input.version.id,
+            nodes: input.nodes.map((node) => ({
+              id: node.id,
+              type: node.nodeType,
+              label: node.label,
+            })),
+            edges: input.edges,
+          },
+        },
+      },
+    },
+  };
+}
+
+function buildTypesSource(
+  workflow: WorkflowEntity,
+  nodes: CanvasNode[],
+  edges: CanvasEdge[],
+) {
+  return [
+    `// Generated from workflow: ${workflow.name}`,
+    'export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };',
+    'export type JsonObject = { [key: string]: JsonValue };',
+    '',
+    `export const workflowId = ${JSON.stringify(workflow.id)};`,
+    `export const workflowNodes = ${stableStringify(nodes, 2)} as const;`,
+    `export const workflowEdges = ${stableStringify(edges, 2)} as const;`,
+  ].join('\n');
+}
+
+function buildClientSource(operationId: string, method: string, path: string) {
+  return [
+    'export type JsonObject = { [key: string]: unknown };',
+    '',
+    'export class ForgeWorkflowClient {',
+    '  constructor(private readonly baseUrl: string) {}',
+    '',
+    `  async ${operationId}(input: JsonObject): Promise<JsonObject> {`,
+    `    const response = await fetch(\`\${this.baseUrl}${path}\`, {`,
+    `      method: ${JSON.stringify(method)},`,
+    '      headers: { "Content-Type": "application/json" },',
+    '      body: JSON.stringify(input),',
+    '    });',
+    '',
+    '    if (!response.ok) {',
+    '      throw new Error(`Workflow request failed with ${response.status}`);',
+    '    }',
+    '',
+    '    return (await response.json()) as JsonObject;',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildRouteSource(
+  operationId: string,
+  method: string,
+  path: string,
+  nodes: CanvasNode[],
+) {
+  return [
+    "import { Body, Controller, Delete, Get, Patch, Post, Put } from '@nestjs/common';",
+    '',
+    "@Controller('generated')",
+    'export class GeneratedWorkflowController {',
+    `  @${toNestMethodDecorator(method)}(${JSON.stringify(path)})`,
+    `  async ${operationId}(@Body() body: Record<string, unknown>) {`,
+    '    return {',
+    '      input: body,',
+    `      nodeCount: ${nodes.length},`,
+    '      status: "accepted",',
+    '    };',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function createArtifact(input: {
+  projectId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  type: GeneratedArtifactEntity['type'];
+  name: string;
+  contentType: GeneratedArtifactEntity['contentType'];
+  value: unknown;
+}): GeneratedArtifactEntity {
+  const content =
+    input.contentType === 'application/json'
+      ? `${stableStringify(input.value, 2)}\n`
+      : `${String(input.value).trimEnd()}\n`;
+
+  return {
+    id: randomUUID(),
+    projectId: input.projectId,
+    workflowId: input.workflowId,
+    workflowVersionId: input.workflowVersionId,
+    type: input.type,
+    name: input.name,
+    contentType: input.contentType,
+    checksum: createStableHash(content),
+    content,
+    createdAt: new Date(),
+  };
+}
+
+function readCanvasNode(value: unknown): CanvasNode {
+  const node = isRecord(value) ? value : {};
+  const data = isRecord(node.data) ? node.data : {};
+
+  return {
+    id: typeof node.id === 'string' ? node.id : randomUUID(),
+    label: typeof data.label === 'string' ? data.label : 'Untitled Node',
+    nodeType: typeof data.type === 'string' ? data.type : 'unknown',
+    config: isRecord(data.config) ? data.config : {},
+  };
+}
+
+function readCanvasEdge(value: unknown): CanvasEdge {
+  const edge = isRecord(value) ? value : {};
+
+  return {
+    id: typeof edge.id === 'string' ? edge.id : randomUUID(),
+    source: typeof edge.source === 'string' ? edge.source : null,
+    target: typeof edge.target === 'string' ? edge.target : null,
+    label: typeof edge.label === 'string' ? edge.label : null,
+  };
+}
+
+function readConfigString(
+  node: CanvasNode | null,
+  key: string,
+  fallback: string,
+) {
+  const value = node?.config[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function normalizePath(path: string) {
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
+function toIdentifier(path: string) {
+  const identifier = path
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+
+  return identifier || 'Generated';
+}
+
+function toNestMethodDecorator(method: string) {
+  switch (method.toUpperCase()) {
+    case 'GET':
+      return 'Get';
+    case 'PUT':
+      return 'Put';
+    case 'PATCH':
+      return 'Patch';
+    case 'DELETE':
+      return 'Delete';
+    default:
+      return 'Post';
+  }
+}
+
+function stableStringify(value: unknown, space = 0) {
+  return JSON.stringify(sortJson(value), null, space);
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJson(item));
+  }
+
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, sortJson(value[key])]),
+    );
+  }
+
+  return value;
+}
+
+function createStableHash(value: string) {
+  let hash = 0x811c9dc5;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

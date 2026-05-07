@@ -1,48 +1,66 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronRight, FileCode2, Play } from "lucide-react";
+import { ChevronRight, Download, FileCode2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  generateCanvasArtifacts,
-  type CanvasGeneratedArtifact,
-  type CanvasArtifactGenerationResult,
-} from "@/features/workflow/artifactGenerator";
+  generateBackendWorkflowArtifacts,
+  type BackendGeneratedArtifact,
+} from "@/features/workflow/backendWorkflowApi";
+import { getErrorMessage } from "@/lib/apiClient";
 import type { WorkflowDocument } from "@/features/workflow/types";
 
 type ArtifactDrawerProps = {
   workflow: WorkflowDocument;
+  backendWorkflowId: string | null;
+  token: string | null;
   onClose: () => void;
 };
 
-export function ArtifactDrawer({ workflow, onClose }: ArtifactDrawerProps) {
-  const [generation, setGeneration] =
-    useState<CanvasArtifactGenerationResult | null>(null);
+export function ArtifactDrawer({
+  workflow,
+  backendWorkflowId,
+  token,
+  onClose,
+}: ArtifactDrawerProps) {
+  const [artifacts, setArtifacts] = useState<BackendGeneratedArtifact[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
   );
 
   const selectedArtifact = useMemo(() => {
-    if (!generation) {
-      return null;
-    }
-
     return (
-      generation.artifacts.find((artifact) => artifact.id === selectedArtifactId) ??
-      generation.artifacts[0] ??
+      artifacts.find((artifact) => artifact.id === selectedArtifactId) ??
+      artifacts[0] ??
       null
     );
-  }, [generation, selectedArtifactId]);
+  }, [artifacts, selectedArtifactId]);
 
-  function handleGenerate() {
-    const nextGeneration = generateCanvasArtifacts(workflow);
-    setGeneration(nextGeneration);
-    setSelectedArtifactId(
-      nextGeneration.artifacts.find((artifact) => artifact.type === "openapi")
-        ?.id ??
-        nextGeneration.artifacts[0]?.id ??
-        null,
-    );
+  async function handleGenerate() {
+    if (!backendWorkflowId || !token) {
+      setErrorMessage("Save the workflow to the backend before generating artifacts.");
+      return;
+    }
+
+    setIsGenerating(true);
+    setErrorMessage(null);
+
+    try {
+      const payload = await generateBackendWorkflowArtifacts(backendWorkflowId, token);
+      setArtifacts(payload.generatedArtifacts);
+      setSelectedArtifactId(
+        payload.generatedArtifacts.find((artifact) => artifact.type === "openapi")
+          ?.id ??
+          payload.generatedArtifacts[0]?.id ??
+          null,
+      );
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   return (
@@ -71,9 +89,9 @@ export function ArtifactDrawer({ workflow, onClose }: ArtifactDrawerProps) {
       </div>
 
       <div className="grid gap-3 border-b border-slate-200 p-4">
-        <Button onClick={handleGenerate} className="h-10 rounded-md">
+        <Button onClick={() => void handleGenerate()} disabled={isGenerating} className="h-10 rounded-md">
           <Play />
-          Generate artifacts
+          {isGenerating ? "Generating..." : "Generate artifacts"}
         </Button>
         <div className="grid grid-cols-3 gap-2 text-xs">
           <Metric label="Nodes" value={workflow.nodes.length} />
@@ -83,29 +101,18 @@ export function ArtifactDrawer({ workflow, onClose }: ArtifactDrawerProps) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
-        {!generation ? (
+        {errorMessage ? (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {artifacts.length === 0 ? (
           <EmptyState />
         ) : (
           <div className="grid gap-4">
-            {generation.issues.length > 0 ? (
-              <div className="grid gap-2">
-                {generation.issues.map((issue, index) => (
-                  <div
-                    key={`${issue.severity}-${index}`}
-                    className={`rounded-md border p-3 text-xs ${
-                      issue.severity === "error"
-                        ? "border-red-200 bg-red-50 text-red-700"
-                        : "border-amber-200 bg-amber-50 text-amber-800"
-                    }`}
-                  >
-                    {issue.message}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
             <div className="flex flex-wrap gap-2">
-              {generation.artifacts.map((artifact) => (
+              {artifacts.map((artifact) => (
                 <ArtifactTab
                   key={artifact.id}
                   artifact={artifact}
@@ -119,7 +126,18 @@ export function ArtifactDrawer({ workflow, onClose }: ArtifactDrawerProps) {
               <div className="overflow-hidden rounded-md border border-slate-900 bg-slate-950">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2 text-xs text-slate-300">
                   <span>{selectedArtifact.type}</span>
-                  <span>{selectedArtifact.checksum}</span>
+                  <div className="flex items-center gap-2">
+                    <span>{selectedArtifact.checksum}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => downloadArtifact(selectedArtifact)}
+                      className="h-7 rounded-md px-2 text-slate-100 hover:bg-white/10"
+                    >
+                      <Download className="size-3.5" />
+                      Download
+                    </Button>
+                  </div>
                 </div>
                 <pre className="max-h-[calc(100vh-360px)] overflow-auto p-4 text-xs leading-5 text-slate-100">
                   <code>{selectedArtifact.content}</code>
@@ -151,7 +169,7 @@ function ArtifactTab({
   selected,
   onSelect,
 }: {
-  artifact: CanvasGeneratedArtifact;
+  artifact: BackendGeneratedArtifact;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -167,6 +185,16 @@ function ArtifactTab({
       {artifact.name}
     </button>
   );
+}
+
+function downloadArtifact(artifact: BackendGeneratedArtifact) {
+  const blob = new Blob([artifact.content], { type: artifact.contentType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = artifact.name;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function EmptyState() {

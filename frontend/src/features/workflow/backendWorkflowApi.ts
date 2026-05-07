@@ -54,6 +54,16 @@ type SaveWorkflowResponse = {
   };
 };
 
+export type BackendGeneratedArtifact = {
+  id: string;
+  type: "openapi" | "endpoint_contract" | "dto_schema" | "sdk_stub" | "code_preview";
+  name: string;
+  contentType: "application/json" | "text/typescript";
+  checksum: string;
+  content: string;
+  createdAt: string;
+};
+
 export async function listBackendWorkflows(workspaceId: string, token: string) {
   return apiRequest<{ workflows: BackendWorkflow[] }>(
     `/workspaces/${workspaceId}/workflows`,
@@ -109,6 +119,17 @@ export async function listBackendTemplates(token: string) {
     .filter((template): template is WorkflowTemplate => Boolean(template));
 
   return templates.length > 0 ? templates : workflowTemplates;
+}
+
+export async function generateBackendWorkflowArtifacts(
+  workflowId: string,
+  token: string,
+) {
+  return apiRequest<{ generatedArtifacts: BackendGeneratedArtifact[] }>(
+    `/workflows/${workflowId}/artifacts`,
+    { method: "POST" },
+    token,
+  );
 }
 
 export function backendWorkflowToSnapshot(

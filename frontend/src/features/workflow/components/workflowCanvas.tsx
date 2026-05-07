@@ -240,7 +240,10 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
       candidate.id === node.id ? { ...candidate, position: node.position } : candidate,
     );
     setNodes(nextNodes);
-    persistNodes(workspaceId, stripNodeConnectionStates(nextNodes));
+    persistNodes(workspaceId, stripNodeConnectionStates(nextNodes), {
+      pushHistory: false,
+      markDirty: false,
+    });
   };
 
   const handleNodesChange: OnNodesChange<WorkflowCanvasNode> = (changes) => {

@@ -26,7 +26,7 @@ type WorkflowStore = {
   replaceSnapshot: (workspaceId: string, snapshot: WorkflowSnapshot, options?: { pushHistory?: boolean }) => void;
   onNodesChange: (workspaceId: string, changes: Parameters<OnNodesChange<WorkflowNode>>[0]) => void;
   onEdgesChange: (workspaceId: string, changes: Parameters<OnEdgesChange<WorkflowEdge>>[0]) => void;
-  setNodes: (workspaceId: string, nodes: WorkflowNode[], options?: { pushHistory?: boolean }) => void;
+  setNodes: (workspaceId: string, nodes: WorkflowNode[], options?: { pushHistory?: boolean; markDirty?: boolean }) => void;
   setEdges: (workspaceId: string, edges: WorkflowEdge[], options?: { pushHistory?: boolean }) => void;
   addConnection: (workspaceId: string, edge: WorkflowEdge) => void;
   reconnectConnection: (workspaceId: string, oldEdge: WorkflowEdge, newConnection: Connection) => void;
@@ -161,6 +161,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
             ...state.workflows,
             [workspaceId]: withHistory(document, { nodes }, {
               pushHistory: options?.pushHistory ?? true,
+              markDirty: options?.markDirty ?? true,
             }),
           },
         }));

@@ -32,7 +32,6 @@ export function WorkspaceDashboard() {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const setWorkspaces = useWorkspaceStore((state) => state.setWorkspaces);
   const upsertWorkspace = useWorkspaceStore((state) => state.upsertWorkspace);
-  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const renameWorkspace = useWorkspaceStore((state) => state.renameWorkspace);
   const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
   const deleteWorkflow = useWorkflowStore((state) => state.deleteWorkflow);
@@ -49,6 +48,7 @@ export function WorkspaceDashboard() {
 
   useEffect(() => {
     if (!token) {
+      router.replace("/login");
       return;
     }
 
@@ -77,7 +77,7 @@ export function WorkspaceDashboard() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [setWorkspaces, token]);
+  }, [router, setWorkspaces, token]);
 
   async function handleCreateWorkspace() {
     const trimmed = name.trim();
@@ -106,10 +106,7 @@ export function WorkspaceDashboard() {
         return;
       }
 
-      const workspaceId = createWorkspace(trimmed);
-      setSelectedWorkspaceId(workspaceId);
-      setName("");
-      router.push(`/workspace/${workspaceId}`);
+      router.replace("/login");
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -183,6 +180,12 @@ export function WorkspaceDashboard() {
             All Workspaces
           </Link>
         </header>
+
+        {!token ? (
+          <div className="mt-6 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+            Redirecting to login...
+          </div>
+        ) : null}
 
         <div className="mt-6 flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
           <div className="max-w-2xl">

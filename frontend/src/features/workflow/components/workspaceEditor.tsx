@@ -77,6 +77,12 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   }, [ensureWorkflow, setSelectedWorkspaceId, workspaceId]);
 
   useEffect(() => {
+    if (!token) {
+      router.replace("/login");
+    }
+  }, [router, token]);
+
+  useEffect(() => {
     if (!token || !workspace) {
       return;
     }
@@ -253,6 +259,14 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
     setConfigNodeId(null);
   }, [configNodeId, selectedNode, setConfigNodeId]);
 
+  if (!token) {
+    return (
+      <main className="grid h-screen place-items-center bg-[#f6f7f8] text-sm text-slate-600">
+        Redirecting to login...
+      </main>
+    );
+  }
+
   if (!workspace || !workflow) {
     return null;
   }
@@ -344,6 +358,8 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
         {artifactDrawerOpen ? (
           <ArtifactDrawer
             workflow={workflow}
+            backendWorkflowId={backendWorkflowId}
+            token={token}
             onClose={() => setArtifactDrawerOpen(false)}
           />
         ) : selectedNode ? (

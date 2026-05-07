@@ -86,6 +86,17 @@ export class WorkflowPersistenceController {
     );
   }
 
+  @Post('workflows/:workflowId/artifacts')
+  generateArtifacts(
+    @Req() request: AuthenticatedRequest,
+    @Param('workflowId') workflowId: string,
+  ) {
+    return this.persistenceService.generateArtifacts(
+      workflowId,
+      request.user.id,
+    );
+  }
+
   @Post('workflows/:workflowId/apply-template/:templateId')
   applyTemplate(
     @Req() request: AuthenticatedRequest,
