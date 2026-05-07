@@ -159,7 +159,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
             : "grid-cols-[280px_minmax(0,1fr)]"
         }`}
       >
-        <NodeLibrarySidebar />
+        <NodeLibrarySidebar workspaceId={workspaceId} workflow={workflow} />
         <div className="min-w-0">
           <WorkflowCanvas workspaceId={workspaceId} workflow={workflow} />
         </div>

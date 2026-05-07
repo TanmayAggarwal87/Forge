@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState, type DragEventHandler } from "react";
 import {
   Bell,
   ChevronDown,
@@ -25,8 +26,14 @@ import {
   nodeDefinitions,
   nodeDefinitionsByType,
 } from "@/features/workflow/nodeRegistry";
+import {
+  applyWorkflowTemplate,
+  workflowTemplates,
+  type WorkflowTemplate,
+} from "@/features/workflow/workflowTemplates";
 import { useUiStore } from "@/stores/uiStore";
-import type { WorkflowNodeType } from "@/features/workflow/types";
+import { useWorkflowStore } from "@/stores/workflowStore";
+import type { WorkflowDocument, WorkflowNodeType } from "@/features/workflow/types";
 
 type LibraryPlaceholder = {
   label: string;
@@ -42,48 +49,38 @@ const categoryIcons: Record<string, LucideIcon> = {
   Communication: Send,
   Logic: Split,
   Database,
+  "API / Integrations": Network,
 };
 
 const nodeIcons: Partial<Record<WorkflowNodeType, LucideIcon>> = {
   httpTrigger: Zap,
+  webhookTrigger: Network,
   generateOtp: KeyRound,
   verifyOtp: ShieldCheck,
+  jwtSign: ShieldCheck,
+  passwordHash: LockKeyhole,
+  createVerificationToken: KeyRound,
+  verifyToken: ShieldCheck,
+  generateResetToken: KeyRound,
+  verifyResetToken: ShieldCheck,
+  verifySignature: ShieldCheck,
   sendEmail: Mail,
   sendSms: MessageSquare,
   delay: Timer,
   condition: Split,
   databaseWrite: Database,
   databaseRead: Database,
+  databaseUpdate: Database,
+  webhookResponse: Network,
 };
 
 const comingSoonNodes: LibraryPlaceholder[] = [
-  {
-    label: "Webhook Trigger",
-    description: "Receive signed provider webhook events.",
-    category: "Triggers",
-    badge: "Soon",
-    icon: Network,
-  },
   {
     label: "Schedule Trigger",
     description: "Start a flow on a recurring schedule.",
     category: "Triggers",
     badge: "Soon",
     icon: Clock3,
-  },
-  {
-    label: "JWT Sign",
-    description: "Issue a signed application token.",
-    category: "Authentication",
-    badge: "Soon",
-    icon: ShieldCheck,
-  },
-  {
-    label: "Password Hash",
-    description: "Hash credentials with a safe policy.",
-    category: "Authentication",
-    badge: "Soon",
-    icon: LockKeyhole,
   },
   {
     label: "Send Push Notification",
@@ -101,7 +98,16 @@ const comingSoonNodes: LibraryPlaceholder[] = [
   },
 ];
 
-export function NodeLibrarySidebar() {
+type NodeLibrarySidebarProps = {
+  workspaceId: string;
+  workflow: WorkflowDocument;
+};
+
+export function NodeLibrarySidebar({
+  workspaceId,
+  workflow,
+}: NodeLibrarySidebarProps) {
+  const [templateToast, setTemplateToast] = useState<string | null>(null);
   const nodeSearch = useUiStore((state) => state.nodeSearch);
   const collapsedCategories = useUiStore((state) => state.collapsedCategories);
   const activeNodeCategory = useUiStore((state) => state.activeNodeCategory);
@@ -109,8 +115,10 @@ export function NodeLibrarySidebar() {
   const setNodeSearch = useUiStore((state) => state.setNodeSearch);
   const toggleCategory = useUiStore((state) => state.toggleCategory);
   const setActiveNodeCategory = useUiStore((state) => state.setActiveNodeCategory);
+  const setSelectedNodeId = useUiStore((state) => state.setSelectedNodeId);
   const setDragNodeType = useUiStore((state) => state.setDragNodeType);
   const recordRecentlyUsedNode = useUiStore((state) => state.recordRecentlyUsedNode);
+  const replaceSnapshot = useWorkflowStore((state) => state.replaceSnapshot);
 
   const query = nodeSearch.trim().toLowerCase();
   const recentlyUsedNodes = recentlyUsedNodeTypes
@@ -124,8 +132,24 @@ export function NodeLibrarySidebar() {
   ).length;
   const hasSearchResults = matchingNodeCount + matchingPlaceholderCount > 0;
 
+  useEffect(() => {
+    if (!templateToast) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setTemplateToast(null), 2800);
+    return () => window.clearTimeout(timeoutId);
+  }, [templateToast]);
+
+  function handleUseTemplate(template: WorkflowTemplate) {
+    const appliedTemplate = applyWorkflowTemplate(workflow, template);
+    replaceSnapshot(workspaceId, appliedTemplate.snapshot);
+    setSelectedNodeId(appliedTemplate.selectedNodeId);
+    setTemplateToast(`${template.name} template added to canvas`);
+  }
+
   return (
-    <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r border-orange-500/15 bg-[#11100e] text-stone-100">
+    <aside className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-orange-500/15 bg-[#11100e] text-stone-100">
       <div className="shrink-0 border-b border-white/10 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -158,24 +182,15 @@ export function NodeLibrarySidebar() {
             <Workflow className="size-3.5 text-orange-400" />
             Quick Start
           </div>
-          <button
-            type="button"
-            disabled
-            className="mt-3 w-full cursor-not-allowed rounded-md border border-dashed border-orange-500/20 bg-orange-500/[0.05] p-3 text-left opacity-80"
-            title="Templates are implemented in the next milestone."
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-stone-200">
-                Templates
-              </span>
-              <span className="rounded bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-orange-300">
-                Next
-              </span>
-            </div>
-            <p className="mt-1 text-xs leading-5 text-stone-500">
-              Insert complete starter workflows.
-            </p>
-          </button>
+          <div className="mt-3 grid gap-2">
+            {workflowTemplates.map((template) => (
+              <TemplateCard
+                key={template.id}
+                template={template}
+                onUseTemplate={() => handleUseTemplate(template)}
+              />
+            ))}
+          </div>
         </section>
 
         {recentlyUsedNodes.length > 0 && !query ? (
@@ -307,7 +322,66 @@ export function NodeLibrarySidebar() {
           );
         })}
       </div>
+
+      {templateToast ? (
+        <div className="pointer-events-none absolute bottom-4 left-3 right-3 rounded-md border border-orange-400/30 bg-[#221b12] px-3 py-2 text-xs font-medium text-orange-100 shadow-lg shadow-black/20">
+          {templateToast}
+        </div>
+      ) : null}
     </aside>
+  );
+}
+
+function TemplateCard({
+  template,
+  onUseTemplate,
+}: {
+  template: WorkflowTemplate;
+  onUseTemplate: () => void;
+}) {
+  return (
+    <article className="rounded-md border border-orange-500/20 bg-orange-500/[0.04] p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-stone-100">
+            {template.name}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-stone-500">
+            {template.description}
+          </p>
+        </div>
+        <span className="shrink-0 rounded bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold text-orange-300">
+          {template.difficulty}
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-medium text-stone-500">
+        <span>{template.nodes.length} nodes</span>
+        <span className="text-stone-700">/</span>
+        <span>{template.category}</span>
+      </div>
+
+      <div className="mt-3 flex min-w-0 items-center gap-1 overflow-hidden text-[10px] text-stone-400">
+        {template.preview.map((item, index) => (
+          <span key={`${template.id}-${item}-${index}`} className="flex items-center gap-1">
+            <span className="rounded border border-white/10 bg-black/20 px-1.5 py-1">
+              {item}
+            </span>
+            {index < template.preview.length - 1 ? (
+              <span className="text-orange-400/70">→</span>
+            ) : null}
+          </span>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={onUseTemplate}
+        className="mt-3 h-8 w-full rounded-md border border-orange-400/40 bg-orange-500/10 text-xs font-semibold text-orange-200 transition hover:border-orange-300 hover:bg-orange-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/25"
+      >
+        Use Template
+      </button>
+    </article>
   );
 }
 
@@ -325,8 +399,8 @@ function NodeCard({
   description: string;
   badge: string;
   compact?: boolean;
-  onDragStart: React.DragEventHandler<HTMLButtonElement>;
-  onDragEnd: React.DragEventHandler<HTMLButtonElement>;
+  onDragStart: DragEventHandler<HTMLButtonElement>;
+  onDragEnd: DragEventHandler<HTMLButtonElement>;
 }) {
   const Icon = nodeIcons[type] ?? Workflow;
 
@@ -412,14 +486,25 @@ function getNodeBadge(type: WorkflowNodeType) {
   switch (type) {
     case "httpTrigger":
       return "Trigger";
+    case "webhookTrigger":
+    case "webhookResponse":
+      return "API";
     case "generateOtp":
     case "verifyOtp":
+    case "jwtSign":
+    case "passwordHash":
+    case "createVerificationToken":
+    case "verifyToken":
+    case "generateResetToken":
+    case "verifyResetToken":
+    case "verifySignature":
       return "Auth";
     case "sendEmail":
     case "sendSms":
       return "IO";
     case "databaseRead":
     case "databaseWrite":
+    case "databaseUpdate":
       return "DB";
     case "delay":
     case "condition":

@@ -2,14 +2,24 @@ import type { Edge, Node, Viewport } from "@xyflow/react";
 
 export type WorkflowNodeType =
   | "httpTrigger"
+  | "webhookTrigger"
   | "generateOtp"
   | "verifyOtp"
+  | "jwtSign"
+  | "passwordHash"
+  | "createVerificationToken"
+  | "verifyToken"
+  | "generateResetToken"
+  | "verifyResetToken"
+  | "verifySignature"
   | "sendEmail"
   | "sendSms"
   | "delay"
   | "condition"
   | "databaseWrite"
-  | "databaseRead";
+  | "databaseRead"
+  | "databaseUpdate"
+  | "webhookResponse";
 
 export type NodeConfigFieldType = "text" | "number" | "select" | "textarea";
 
@@ -22,6 +32,7 @@ export type NodeConfigField = {
   key: string;
   label: string;
   type: NodeConfigFieldType;
+  optional?: boolean;
   min?: number;
   step?: number;
   placeholder?: string;
