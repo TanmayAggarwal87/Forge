@@ -115,7 +115,7 @@ export function NodeLibrarySidebar({
   const setNodeSearch = useUiStore((state) => state.setNodeSearch);
   const toggleCategory = useUiStore((state) => state.toggleCategory);
   const setActiveNodeCategory = useUiStore((state) => state.setActiveNodeCategory);
-  const setSelectedNodeId = useUiStore((state) => state.setSelectedNodeId);
+  const setConfigNodeId = useUiStore((state) => state.setConfigNodeId);
   const setDragNodeType = useUiStore((state) => state.setDragNodeType);
   const recordRecentlyUsedNode = useUiStore((state) => state.recordRecentlyUsedNode);
   const replaceSnapshot = useWorkflowStore((state) => state.replaceSnapshot);
@@ -144,7 +144,7 @@ export function NodeLibrarySidebar({
   function handleUseTemplate(template: WorkflowTemplate) {
     const appliedTemplate = applyWorkflowTemplate(workflow, template);
     replaceSnapshot(workspaceId, appliedTemplate.snapshot);
-    setSelectedNodeId(appliedTemplate.selectedNodeId);
+    setConfigNodeId(appliedTemplate.selectedNodeId);
     setTemplateToast(`${template.name} template added to canvas`);
   }
 

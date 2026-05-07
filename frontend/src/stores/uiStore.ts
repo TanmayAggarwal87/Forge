@@ -8,6 +8,7 @@ import type { WorkflowNodeType } from "@/features/workflow/types";
 type UiStore = {
   selectedWorkspaceId: string | null;
   selectedNodeId: string | null;
+  configNodeId: string | null;
   nodeSearch: string;
   collapsedCategories: string[];
   activeNodeCategory: string | null;
@@ -15,6 +16,7 @@ type UiStore = {
   dragNodeType: WorkflowNodeType | null;
   setSelectedWorkspaceId: (workspaceId: string | null) => void;
   setSelectedNodeId: (nodeId: string | null) => void;
+  setConfigNodeId: (nodeId: string | null) => void;
   setNodeSearch: (value: string) => void;
   toggleCategory: (category: string) => void;
   setActiveNodeCategory: (category: string | null) => void;
@@ -28,6 +30,7 @@ export const useUiStore = create<UiStore>()(
     (set) => ({
       selectedWorkspaceId: null,
       selectedNodeId: null,
+      configNodeId: null,
       nodeSearch: "",
       collapsedCategories: [],
       activeNodeCategory: null,
@@ -35,6 +38,7 @@ export const useUiStore = create<UiStore>()(
       dragNodeType: null,
       setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
       setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+      setConfigNodeId: (configNodeId) => set({ configNodeId }),
       setNodeSearch: (nodeSearch) => set({ nodeSearch }),
       toggleCategory: (category) =>
         set((state) => ({

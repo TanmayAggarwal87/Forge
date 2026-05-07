@@ -40,7 +40,8 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   const workflow = useWorkflowStore((state) => state.workflows[workspaceId]);
 
   const setSelectedWorkspaceId = useUiStore((state) => state.setSelectedWorkspaceId);
-  const selectedNodeId = useUiStore((state) => state.selectedNodeId);
+  const configNodeId = useUiStore((state) => state.configNodeId);
+  const setConfigNodeId = useUiStore((state) => state.setConfigNodeId);
 
   const workspace = useWorkspaceStore((state) =>
     state.workspaces.find((candidate) => candidate.id === workspaceId),
@@ -80,9 +81,17 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   }, [failSave, saveWorkflow, touchWorkspace, workflow, workspace, workspaceId]);
 
   const selectedNode = useMemo(
-    () => workflow?.nodes.find((node) => node.id === selectedNodeId) ?? null,
-    [selectedNodeId, workflow?.nodes],
+    () => workflow?.nodes.find((node) => node.id === configNodeId) ?? null,
+    [configNodeId, workflow?.nodes],
   );
+
+  useEffect(() => {
+    if (!configNodeId || selectedNode) {
+      return;
+    }
+
+    setConfigNodeId(null);
+  }, [configNodeId, selectedNode, setConfigNodeId]);
 
   if (!workspace || !workflow) {
     return null;

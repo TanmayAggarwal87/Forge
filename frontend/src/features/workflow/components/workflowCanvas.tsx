@@ -66,6 +66,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
 
   const syncSelection = useUiStore((state) => state.syncSelection);
   const setSelectedNodeId = useUiStore((state) => state.setSelectedNodeId);
+  const setConfigNodeId = useUiStore((state) => state.setConfigNodeId);
   const setDragNodeType = useUiStore((state) => state.setDragNodeType);
 
   const addConnection = useWorkflowStore((state) => state.addConnection);
@@ -212,10 +213,16 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
         onConnect={handleConnect}
         onSelectionChange={({ nodes, edges }) => syncSelection(nodes, edges)}
         onNodeDragStop={handleNodeDragStop}
-        onPaneClick={() => setSelectedNodeId(null)}
+        onPaneClick={() => {
+          setSelectedNodeId(null);
+          setConfigNodeId(null);
+        }}
         onMoveEnd={handleMoveEnd}
         onReconnect={handleReconnect}
-        onNodesDelete={() => setSelectedNodeId(null)}
+        onNodesDelete={() => {
+          setSelectedNodeId(null);
+          setConfigNodeId(null);
+        }}
         className="workflow-canvas h-full w-full"
       >
         <Background gap={24} size={1} color="#e2e8f0" />
