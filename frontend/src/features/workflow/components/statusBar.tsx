@@ -7,16 +7,18 @@ import type { WorkflowDocument } from "@/features/workflow/types";
 
 type StatusBarProps = {
   workflow: WorkflowDocument;
+  syncLabel?: string | null;
   onRetry: () => void;
 };
 
-export function StatusBar({ workflow, onRetry }: StatusBarProps) {
+export function StatusBar({ workflow, syncLabel, onRetry }: StatusBarProps) {
   return (
     <footer className="flex h-11 items-center justify-between border-t border-slate-200 bg-white px-4 text-xs text-slate-600">
       <div className="flex items-center gap-5">
         <span>Last saved: {formatRelativeTime(workflow.lastSavedAt)}</span>
         <span>Workflow status: {workflow.status}</span>
         <span>Execution state: {workflow.executionState}</span>
+        {syncLabel ? <span>{syncLabel}</span> : null}
       </div>
 
       {workflow.saveError ? (

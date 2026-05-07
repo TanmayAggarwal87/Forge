@@ -101,11 +101,17 @@ const comingSoonNodes: LibraryPlaceholder[] = [
 type NodeLibrarySidebarProps = {
   workspaceId: string;
   workflow: WorkflowDocument;
+  templates?: WorkflowTemplate[];
+  templatesError?: string | null;
+  templatesLoading?: boolean;
 };
 
 export function NodeLibrarySidebar({
   workspaceId,
   workflow,
+  templates = workflowTemplates,
+  templatesError = null,
+  templatesLoading = false,
 }: NodeLibrarySidebarProps) {
   const [templateToast, setTemplateToast] = useState<string | null>(null);
   const nodeSearch = useUiStore((state) => state.nodeSearch);
@@ -183,7 +189,25 @@ export function NodeLibrarySidebar({
             Quick Start
           </div>
           <div className="mt-3 grid gap-2">
-            {workflowTemplates.map((template) => (
+            {templatesLoading ? (
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-4 text-xs text-slate-500">
+                Loading templates...
+              </div>
+            ) : null}
+
+            {!templatesLoading && templates.length === 0 ? (
+              <div className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-4 text-xs text-slate-500">
+                No templates found
+              </div>
+            ) : null}
+
+            {templatesError ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {templatesError}
+              </div>
+            ) : null}
+
+            {templates.map((template) => (
               <TemplateCard
                 key={template.id}
                 template={template}

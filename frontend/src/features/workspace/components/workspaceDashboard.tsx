@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, Trash2 } from "lucide-react";
@@ -9,14 +9,29 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useUiStore } from "@/stores/uiStore";
 import { formatRelativeTime } from "@/features/workflow/utils";
+import { apiRequest, getErrorMessage } from "@/lib/apiClient";
+import { getStoredSessionToken } from "@/lib/sessionStorage";
+import type { Workspace } from "@/features/workspace/types";
+
+type BackendWorkspace = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt?: string;
+};
 
 export function WorkspaceDashboard() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [token] = useState<string | null>(() => getStoredSessionToken());
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const setWorkspaces = useWorkspaceStore((state) => state.setWorkspaces);
+  const upsertWorkspace = useWorkspaceStore((state) => state.upsertWorkspace);
   const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const renameWorkspace = useWorkspaceStore((state) => state.renameWorkspace);
   const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
@@ -32,16 +47,74 @@ export function WorkspaceDashboard() {
     [workspaces],
   );
 
-  function handleCreateWorkspace() {
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      setIsLoading(true);
+      apiRequest<{ workspaces: BackendWorkspace[] }>("/workspaces", {}, token)
+        .then((payload) => {
+          if (!cancelled) {
+            setWorkspaces(payload.workspaces.map(normalizeWorkspace));
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setErrorMessage(getErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsLoading(false);
+          }
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [setWorkspaces, token]);
+
+  async function handleCreateWorkspace() {
     const trimmed = name.trim();
     if (!trimmed) {
       return;
     }
 
-    const workspaceId = createWorkspace(trimmed);
-    setSelectedWorkspaceId(workspaceId);
-    setName("");
-    router.push(`/workspace/${workspaceId}`);
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      if (token) {
+        const payload = await apiRequest<{ workspace: BackendWorkspace }>(
+          "/workspaces",
+          {
+            method: "POST",
+            body: JSON.stringify({ name: trimmed }),
+          },
+          token,
+        );
+        const workspace = normalizeWorkspace(payload.workspace);
+        upsertWorkspace(workspace);
+        setSelectedWorkspaceId(workspace.id);
+        setName("");
+        router.push(`/workspace/${workspace.id}`);
+        return;
+      }
+
+      const workspaceId = createWorkspace(trimmed);
+      setSelectedWorkspaceId(workspaceId);
+      setName("");
+      router.push(`/workspace/${workspaceId}`);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   function handleOpenWorkspace(workspaceId: string) {
@@ -49,9 +122,48 @@ export function WorkspaceDashboard() {
     router.push(`/workspace/${workspaceId}`);
   }
 
-  function handleDeleteWorkspace(workspaceId: string) {
-    deleteWorkspace(workspaceId);
-    deleteWorkflow(workspaceId);
+  async function handleDeleteWorkspace(workspaceId: string) {
+    setErrorMessage(null);
+
+    try {
+      if (token) {
+        await apiRequest(`/workspaces/${workspaceId}`, { method: "DELETE" }, token);
+      }
+
+      deleteWorkspace(workspaceId);
+      deleteWorkflow(workspaceId);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    }
+  }
+
+  async function handleRenameWorkspace(workspaceId: string, nextName: string) {
+    if (!nextName) {
+      setEditingId(null);
+      return;
+    }
+
+    setErrorMessage(null);
+
+    try {
+      if (token) {
+        const payload = await apiRequest<{ workspace: BackendWorkspace }>(
+          `/workspaces/${workspaceId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ name: nextName }),
+          },
+          token,
+        );
+        upsertWorkspace(normalizeWorkspace(payload.workspace));
+      } else {
+        renameWorkspace(workspaceId, nextName);
+      }
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setEditingId(null);
+    }
   }
 
   return (
@@ -90,12 +202,18 @@ export function WorkspaceDashboard() {
               placeholder="New workspace name"
               className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-0 placeholder:text-slate-400 focus:border-slate-950"
             />
-            <Button onClick={handleCreateWorkspace} className="h-10 rounded-md px-4">
+            <Button onClick={handleCreateWorkspace} disabled={isLoading} className="h-10 rounded-md px-4">
               <Plus />
-              Create Workspace
+              {isLoading ? "Working..." : "Create Workspace"}
             </Button>
           </div>
         </div>
+
+        {errorMessage ? (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        ) : null}
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {sortedWorkspaces.length === 0 ? (
@@ -120,18 +238,12 @@ export function WorkspaceDashboard() {
                       onChange={(event) => setEditingName(event.target.value)}
                       onBlur={() => {
                         const nextName = editingName.trim();
-                        if (nextName) {
-                          renameWorkspace(workspace.id, nextName);
-                        }
-                        setEditingId(null);
+                        void handleRenameWorkspace(workspace.id, nextName);
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           const nextName = editingName.trim();
-                          if (nextName) {
-                            renameWorkspace(workspace.id, nextName);
-                          }
-                          setEditingId(null);
+                          void handleRenameWorkspace(workspace.id, nextName);
                         }
 
                         if (event.key === "Escape") {
@@ -179,7 +291,7 @@ export function WorkspaceDashboard() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => handleDeleteWorkspace(workspace.id)}
+                      onClick={() => void handleDeleteWorkspace(workspace.id)}
                       className="rounded-md text-slate-500"
                     >
                       <Trash2 />
@@ -193,4 +305,13 @@ export function WorkspaceDashboard() {
       </section>
     </main>
   );
+}
+
+function normalizeWorkspace(workspace: BackendWorkspace): Workspace {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    createdAt: workspace.createdAt,
+    updatedAt: workspace.updatedAt ?? workspace.createdAt,
+  };
 }

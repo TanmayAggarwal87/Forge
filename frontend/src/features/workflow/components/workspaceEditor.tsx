@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -18,9 +18,23 @@ import { NodeConfigPanel } from "@/features/workflow/components/nodeConfigPanel"
 import { NodeLibrarySidebar } from "@/features/workflow/components/nodeLibrarySidebar";
 import { StatusBar } from "@/features/workflow/components/statusBar";
 import { WorkflowCanvas } from "@/features/workflow/components/workflowCanvas";
+import {
+  backendWorkflowToSnapshot,
+  createBackendWorkflow,
+  getBackendWorkflow,
+  listBackendTemplates,
+  listBackendWorkflows,
+  saveBackendWorkflowSnapshot,
+} from "@/features/workflow/backendWorkflowApi";
+import { getErrorMessage } from "@/lib/apiClient";
+import { getStoredSessionToken } from "@/lib/sessionStorage";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import {
+  workflowTemplates,
+  type WorkflowTemplate,
+} from "@/features/workflow/workflowTemplates";
 
 type WorkspaceEditorProps = {
   workspaceId: string;
@@ -29,8 +43,17 @@ type WorkspaceEditorProps = {
 export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   const router = useRouter();
   const [artifactDrawerOpen, setArtifactDrawerOpen] = useState(false);
+  const [token] = useState<string | null>(() => getStoredSessionToken());
+  const [backendWorkflowId, setBackendWorkflowId] = useState<string | null>(null);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [isSavingRemote, setIsSavingRemote] = useState(false);
+  const [remoteStatus, setRemoteStatus] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>(workflowTemplates);
 
   const ensureWorkflow = useWorkflowStore((state) => state.ensureWorkflow);
+  const replaceSnapshot = useWorkflowStore((state) => state.replaceSnapshot);
   const saveWorkflow = useWorkflowStore((state) => state.saveWorkflow);
   const deployWorkflow = useWorkflowStore((state) => state.deployWorkflow);
   const undo = useWorkflowStore((state) => state.undo);
@@ -54,31 +77,168 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   }, [ensureWorkflow, setSelectedWorkspaceId, workspaceId]);
 
   useEffect(() => {
+    if (!token || !workspace) {
+      return;
+    }
+
+    let cancelled = false;
+    const activeToken = token;
+    const activeWorkspace = workspace;
+
+    async function hydrateWorkflow() {
+      setIsLoadingWorkspace(true);
+      setRemoteStatus("Loading workspace...");
+
+      try {
+        const listed = await listBackendWorkflows(workspaceId, activeToken);
+        const existingWorkflow =
+          listed.workflows.find((candidate) => candidate.name === activeWorkspace.name) ??
+          listed.workflows[0];
+        const backendWorkflow = existingWorkflow
+          ? await getBackendWorkflow(existingWorkflow.id, activeToken)
+          : await createBackendWorkflow(workspaceId, activeWorkspace.name, activeToken);
+
+        if (cancelled) {
+          return;
+        }
+
+        setBackendWorkflowId(backendWorkflow.workflow.id);
+        replaceSnapshot(
+          workspaceId,
+          backendWorkflowToSnapshot(backendWorkflow.workflow),
+          { pushHistory: false },
+        );
+        saveWorkflow(workspaceId);
+        setRemoteStatus("Saved");
+      } catch (error) {
+        if (!cancelled) {
+          setBackendWorkflowId(null);
+          setRemoteStatus("Backend unavailable. Using local draft.");
+          failSave(workspaceId, getErrorMessage(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingWorkspace(false);
+        }
+      }
+    }
+
+    void hydrateWorkflow();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    failSave,
+    replaceSnapshot,
+    saveWorkflow,
+    token,
+    workspace,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    let cancelled = false;
+    const activeToken = token;
+    const timeoutId = window.setTimeout(() => {
+      setIsLoadingTemplates(true);
+      setTemplateError(null);
+
+      listBackendTemplates(activeToken)
+        .then((nextTemplates) => {
+          if (!cancelled) {
+            setTemplates(nextTemplates);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setTemplateError("Unable to load templates");
+            setTemplates(workflowTemplates);
+            setRemoteStatus(getErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsLoadingTemplates(false);
+          }
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [token]);
+
+  useEffect(() => {
     if (!workspace) {
       router.replace("/dashboard");
     }
   }, [router, workspace]);
 
-  useEffect(() => {
+  const saveCurrentWorkflow = useCallback(async () => {
     if (!workflow || !workspace) {
       return;
     }
 
-    if (!workflow.dirty) {
+    clearSaveError(workspaceId);
+
+    if (!token || !backendWorkflowId) {
+      saveWorkflow(workspaceId);
+      touchWorkspace(workspaceId);
+      return;
+    }
+
+    setIsSavingRemote(true);
+    setRemoteStatus("Saving...");
+
+    try {
+      await saveBackendWorkflowSnapshot(
+        backendWorkflowId,
+        {
+          nodes: workflow.nodes,
+          edges: workflow.edges,
+          viewport: workflow.viewport,
+        },
+        token,
+      );
+      saveWorkflow(workspaceId);
+      touchWorkspace(workspaceId);
+      setRemoteStatus("Saved");
+    } catch (error) {
+      const message = getErrorMessage(error);
+      failSave(workspaceId, message);
+      setRemoteStatus("Unable to save");
+    } finally {
+      setIsSavingRemote(false);
+    }
+  }, [
+    backendWorkflowId,
+    clearSaveError,
+    failSave,
+    saveWorkflow,
+    token,
+    touchWorkspace,
+    workflow,
+    workspace,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (!workflow || !workspace || !workflow.dirty) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      try {
-        saveWorkflow(workspaceId);
-        touchWorkspace(workspaceId);
-      } catch {
-        failSave(workspaceId, "Unable to save workflow");
-      }
+      void saveCurrentWorkflow();
     }, 600);
 
     return () => window.clearTimeout(timeoutId);
-  }, [failSave, saveWorkflow, touchWorkspace, workflow, workspace, workspaceId]);
+  }, [saveCurrentWorkflow, workflow, workspace]);
 
   const selectedNode = useMemo(
     () => workflow?.nodes.find((node) => node.id === configNodeId) ?? null,
@@ -126,15 +286,12 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
           </Button>
           <Button
             variant="outline"
-            onClick={() => {
-              clearSaveError(workspaceId);
-              saveWorkflow(workspaceId);
-              touchWorkspace(workspaceId);
-            }}
+            onClick={() => void saveCurrentWorkflow()}
+            disabled={isSavingRemote}
             className="rounded-md"
           >
             <Save />
-            Save
+            {isSavingRemote ? "Saving" : "Save"}
           </Button>
           <Button
             onClick={() => {
@@ -168,9 +325,21 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
             : "grid-cols-[280px_minmax(0,1fr)]"
         }`}
       >
-        <NodeLibrarySidebar workspaceId={workspaceId} workflow={workflow} />
+        <NodeLibrarySidebar
+          workspaceId={workspaceId}
+          workflow={workflow}
+          templates={templates}
+          templatesError={templateError}
+          templatesLoading={isLoadingTemplates}
+        />
         <div className="min-w-0">
-          <WorkflowCanvas workspaceId={workspaceId} workflow={workflow} />
+          {isLoadingWorkspace ? (
+            <div className="grid h-full place-items-center bg-[#fbfbfc] text-sm text-slate-500">
+              Loading workspace...
+            </div>
+          ) : (
+            <WorkflowCanvas workspaceId={workspaceId} workflow={workflow} />
+          )}
         </div>
         {artifactDrawerOpen ? (
           <ArtifactDrawer
@@ -184,10 +353,9 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
 
       <StatusBar
         workflow={workflow}
+        syncLabel={remoteStatus}
         onRetry={() => {
-          clearSaveError(workspaceId);
-          saveWorkflow(workspaceId);
-          touchWorkspace(workspaceId);
+          void saveCurrentWorkflow();
         }}
       />
     </main>
