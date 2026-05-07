@@ -1,12 +1,28 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import type { Repository } from 'typeorm';
+import {
+  AuditLogEntity,
+  GeneratedArtifactEntity,
+  ProjectEntity,
+  SessionEntity,
+  UserEntity,
+  WorkflowEntity,
+  WorkflowExecutionEntity,
+  WorkflowExecutionLogEntity,
+  WorkflowExecutionStepEntity,
+  WorkflowVersionEntity,
+  WorkspaceEntity,
+} from '../database/entities';
 import {
   AuditLog,
   GeneratedArtifact,
@@ -106,7 +122,8 @@ type DatabaseShape = {
 };
 
 @Injectable()
-export class InMemoryStoreService {
+export class InMemoryStoreService implements OnModuleInit {
+  private readonly logger = new Logger(InMemoryStoreService.name);
   private readonly users = new Map<string, User>();
   private readonly usersByEmail = new Map<string, string>();
   private readonly sessions = new Map<string, Session>();
@@ -123,12 +140,46 @@ export class InMemoryStoreService {
   private readonly workflowExecutionLogs: WorkflowExecutionLog[] = [];
   private readonly generatedArtifacts = new Map<string, GeneratedArtifact>();
   private readonly auditLogs: AuditLog[] = [];
-  private readonly databasePath =
-    process.env.FORGE_DATABASE_PATH ??
-    join(process.cwd(), 'data', 'forgeDatabase.json');
+  private persistQueue = Promise.resolve();
 
-  constructor() {
-    this.loadDatabase();
+  constructor(
+    @Optional()
+    @InjectRepository(UserEntity)
+    private readonly userRepository?: Repository<UserEntity>,
+    @Optional()
+    @InjectRepository(SessionEntity)
+    private readonly sessionRepository?: Repository<SessionEntity>,
+    @Optional()
+    @InjectRepository(WorkspaceEntity)
+    private readonly workspaceRepository?: Repository<WorkspaceEntity>,
+    @Optional()
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepository?: Repository<ProjectEntity>,
+    @Optional()
+    @InjectRepository(WorkflowEntity)
+    private readonly workflowRepository?: Repository<WorkflowEntity>,
+    @Optional()
+    @InjectRepository(WorkflowVersionEntity)
+    private readonly workflowVersionRepository?: Repository<WorkflowVersionEntity>,
+    @Optional()
+    @InjectRepository(WorkflowExecutionEntity)
+    private readonly workflowExecutionRepository?: Repository<WorkflowExecutionEntity>,
+    @Optional()
+    @InjectRepository(WorkflowExecutionStepEntity)
+    private readonly workflowExecutionStepRepository?: Repository<WorkflowExecutionStepEntity>,
+    @Optional()
+    @InjectRepository(WorkflowExecutionLogEntity)
+    private readonly workflowExecutionLogRepository?: Repository<WorkflowExecutionLogEntity>,
+    @Optional()
+    @InjectRepository(GeneratedArtifactEntity)
+    private readonly generatedArtifactRepository?: Repository<GeneratedArtifactEntity>,
+    @Optional()
+    @InjectRepository(AuditLogEntity)
+    private readonly auditLogRepository?: Repository<AuditLogEntity>,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.loadDatabase();
   }
 
   register(
@@ -254,6 +305,75 @@ export class InMemoryStoreService {
     this.saveDatabase();
 
     return workspace;
+  }
+
+  updateWorkspace(
+    workspaceId: string,
+    userId: string,
+    patch: { name?: string; description?: string | null },
+  ): Workspace & { role: WorkspaceRole } {
+    const existing = this.getWorkspaceForUser(workspaceId, userId);
+    const updatedWorkspace: Workspace = {
+      id: existing.id,
+      name: patch.name ?? existing.name,
+      slug: this.slugify(patch.name ?? existing.name),
+      createdByUserId: existing.createdByUserId,
+      createdAt: existing.createdAt,
+    };
+
+    this.workspaces.set(workspaceId, updatedWorkspace);
+    this.recordAudit({
+      actorUserId: userId,
+      workspaceId,
+      action: 'workspace.updated',
+      targetType: 'workspace',
+      targetId: workspaceId,
+      metadata: {
+        name: updatedWorkspace.name,
+        description: patch.description ?? null,
+      },
+    });
+    this.saveDatabase();
+
+    return { ...updatedWorkspace, role: existing.role };
+  }
+
+  deleteWorkspace(workspaceId: string, userId: string): void {
+    this.getWorkspaceForUser(workspaceId, userId);
+    this.workspaces.delete(workspaceId);
+
+    for (const project of Array.from(this.projects.values())) {
+      if (project.workspaceId !== workspaceId) {
+        continue;
+      }
+
+      this.projects.delete(project.id);
+      for (const workflow of Array.from(this.workflows.values())) {
+        if (workflow.projectId !== project.id) {
+          continue;
+        }
+
+        this.workflows.delete(workflow.id);
+        for (const version of Array.from(this.workflowVersions.values())) {
+          if (version.workflowId === workflow.id) {
+            this.workflowVersions.delete(version.id);
+          }
+        }
+      }
+    }
+
+    this.recordAudit({
+      actorUserId: userId,
+      workspaceId: null,
+      action: 'workspace.deleted',
+      targetType: 'workspace',
+      targetId: workspaceId,
+      metadata: {},
+    });
+    if (this.workspaceRepository) {
+      void this.workspaceRepository.delete(workspaceId);
+    }
+    this.saveDatabase();
   }
 
   listWorkspaces(userId: string): Array<Workspace & { role: WorkspaceRole }> {
@@ -987,64 +1107,233 @@ export class InMemoryStoreService {
     };
   }
 
-  private loadDatabase(): void {
-    if (!existsSync(this.databasePath)) {
+  private async loadDatabase(): Promise<void> {
+    if (!this.isDatabaseConfigured()) {
       return;
     }
 
-    const rawDatabase = readFileSync(this.databasePath, 'utf8');
-    const database = JSON.parse(rawDatabase) as Partial<DatabaseShape>;
+    const [
+      users,
+      sessions,
+      workspaces,
+      projects,
+      workflows,
+      workflowVersions,
+      workflowExecutions,
+      workflowExecutionSteps,
+      workflowExecutionLogs,
+      generatedArtifacts,
+      auditLogs,
+    ] = await Promise.all([
+      this.userRepository!.find(),
+      this.sessionRepository!.find(),
+      this.workspaceRepository!.find(),
+      this.projectRepository!.find(),
+      this.workflowRepository!.find(),
+      this.workflowVersionRepository!.find(),
+      this.workflowExecutionRepository!.find(),
+      this.workflowExecutionStepRepository!.find(),
+      this.workflowExecutionLogRepository!.find(),
+      this.generatedArtifactRepository!.find(),
+      this.auditLogRepository!.find(),
+    ]);
 
-    for (const user of database.users ?? []) {
+    for (const userEntity of users) {
+      const user: User = {
+        id: userEntity.id,
+        email: userEntity.email,
+        name: userEntity.name,
+        passwordHash: userEntity.passwordHash,
+        passwordSalt: userEntity.passwordSalt,
+        createdAt: toIsoString(userEntity.createdAt),
+      };
       this.users.set(user.id, user);
       this.usersByEmail.set(user.email, user.id);
     }
 
-    for (const session of database.sessions ?? []) {
+    for (const sessionEntity of sessions) {
+      const session: Session = {
+        token: sessionEntity.token,
+        userId: sessionEntity.userId,
+        createdAt: toIsoString(sessionEntity.createdAt),
+        expiresAt: toIsoString(sessionEntity.expiresAt),
+      };
       this.sessions.set(session.token, session);
     }
 
-    for (const workspace of database.workspaces ?? []) {
+    for (const workspaceEntity of workspaces) {
+      const workspace: Workspace = {
+        id: workspaceEntity.id,
+        name: workspaceEntity.name,
+        slug: workspaceEntity.slug,
+        createdByUserId: workspaceEntity.userId,
+        createdAt: toIsoString(workspaceEntity.createdAt),
+      };
       this.workspaces.set(workspace.id, workspace);
-    }
-
-    this.members.push(...(database.members ?? []));
-
-    for (const project of database.projects ?? []) {
-      this.projects.set(project.id, project);
-    }
-
-    for (const workflow of database.workflows ?? []) {
-      this.workflows.set(workflow.id, workflow);
-    }
-
-    for (const workflowVersion of database.workflowVersions ?? []) {
-      this.workflowVersions.set(workflowVersion.id, {
-        ...workflowVersion,
-        compiledIr: workflowVersion.compiledIr ?? null,
-        publishedAt: workflowVersion.publishedAt ?? null,
+      this.members.push({
+        workspaceId: workspace.id,
+        userId: workspace.createdByUserId,
+        role: 'owner',
+        createdAt: workspace.createdAt,
       });
     }
 
-    for (const execution of database.workflowExecutions ?? []) {
+    for (const projectEntity of projects) {
+      const project: Project = {
+        id: projectEntity.id,
+        workspaceId: projectEntity.workspaceId,
+        name: projectEntity.name,
+        slug: projectEntity.slug,
+        description: projectEntity.description,
+        createdByUserId: projectEntity.createdByUserId,
+        createdAt: toIsoString(projectEntity.createdAt),
+      };
+      this.projects.set(project.id, project);
+    }
+
+    for (const workflowEntity of workflows) {
+      const workflow: Workflow = {
+        id: workflowEntity.id,
+        projectId: workflowEntity.projectId ?? '',
+        name: workflowEntity.name,
+        slug: workflowEntity.slug,
+        description: workflowEntity.description,
+        status: workflowEntity.status,
+        draftVersionId: workflowEntity.draftVersionId ?? '',
+        publishedVersionId: workflowEntity.publishedVersionId,
+        createdByUserId: workflowEntity.createdByUserId,
+        createdAt: toIsoString(workflowEntity.createdAt),
+        updatedAt: toIsoString(workflowEntity.updatedAt),
+      };
+      this.workflows.set(workflow.id, workflow);
+    }
+
+    for (const versionEntity of workflowVersions) {
+      const version: WorkflowVersion = {
+        id: versionEntity.id,
+        workflowId: versionEntity.workflowId,
+        projectId: versionEntity.projectId ?? '',
+        versionNumber: versionEntity.versionNumber,
+        status: versionEntity.status,
+        graph: {
+          nodes: versionEntity.nodesJson,
+          edges: versionEntity.edgesJson,
+        },
+        validation: versionEntity.validation,
+        compiledIr: versionEntity.compiledIr ?? null,
+        createdByUserId: versionEntity.createdBy,
+        createdAt: toIsoString(versionEntity.createdAt),
+        updatedAt: toIsoString(versionEntity.updatedAt),
+        publishedAt: versionEntity.publishedAt
+          ? toIsoString(versionEntity.publishedAt)
+          : null,
+      };
+      this.workflowVersions.set(version.id, version);
+    }
+
+    for (const executionEntity of workflowExecutions) {
+      const execution: WorkflowExecution = {
+        id: executionEntity.id,
+        projectId: executionEntity.projectId,
+        workflowId: executionEntity.workflowId,
+        workflowVersionId: executionEntity.workflowVersionId,
+        status: executionEntity.status,
+        triggerType: executionEntity.triggerType,
+        traceId: executionEntity.traceId,
+        idempotencyKey: executionEntity.idempotencyKey,
+        input: executionEntity.input,
+        output: executionEntity.output,
+        error: executionEntity.error,
+        createdAt: toIsoString(executionEntity.createdAt),
+        startedAt: executionEntity.startedAt
+          ? toIsoString(executionEntity.startedAt)
+          : null,
+        completedAt: executionEntity.completedAt
+          ? toIsoString(executionEntity.completedAt)
+          : null,
+        updatedAt: toIsoString(executionEntity.updatedAt),
+      };
       this.workflowExecutions.set(execution.id, execution);
     }
 
-    for (const step of database.workflowExecutionSteps ?? []) {
+    for (const stepEntity of workflowExecutionSteps) {
+      const step: WorkflowExecutionStep = {
+        id: stepEntity.id,
+        executionId: stepEntity.executionId,
+        workflowVersionId: stepEntity.workflowVersionId,
+        nodeId: stepEntity.nodeId,
+        nodeType: stepEntity.nodeType,
+        label: stepEntity.label,
+        status: stepEntity.status,
+        attempt: stepEntity.attempt,
+        maxAttempts: stepEntity.maxAttempts,
+        input: stepEntity.input,
+        output: stepEntity.output,
+        error: stepEntity.error,
+        startedAt: stepEntity.startedAt
+          ? toIsoString(stepEntity.startedAt)
+          : null,
+        completedAt: stepEntity.completedAt
+          ? toIsoString(stepEntity.completedAt)
+          : null,
+        durationMs: stepEntity.durationMs,
+        updatedAt: toIsoString(stepEntity.updatedAt),
+      };
       this.workflowExecutionSteps.set(step.id, step);
     }
 
-    this.workflowExecutionLogs.push(...(database.workflowExecutionLogs ?? []));
+    this.workflowExecutionLogs.push(
+      ...workflowExecutionLogs.map(
+        (logEntity): WorkflowExecutionLog => ({
+          id: logEntity.id,
+          executionId: logEntity.executionId,
+          stepId: logEntity.stepId,
+          traceId: logEntity.traceId,
+          level: logEntity.level,
+          message: logEntity.message,
+          metadata: logEntity.metadata,
+          createdAt: toIsoString(logEntity.createdAt),
+        }),
+      ),
+    );
 
-    for (const artifact of database.generatedArtifacts ?? []) {
+    for (const artifactEntity of generatedArtifacts) {
+      const artifact: GeneratedArtifact = {
+        id: artifactEntity.id,
+        projectId: artifactEntity.projectId,
+        workflowId: artifactEntity.workflowId,
+        workflowVersionId: artifactEntity.workflowVersionId,
+        type: artifactEntity.type,
+        name: artifactEntity.name,
+        contentType: artifactEntity.contentType,
+        checksum: artifactEntity.checksum,
+        content: artifactEntity.content,
+        createdAt: toIsoString(artifactEntity.createdAt),
+      };
       this.generatedArtifacts.set(artifact.id, artifact);
     }
 
-    this.auditLogs.push(...(database.auditLogs ?? []));
+    this.auditLogs.push(
+      ...auditLogs.map(
+        (auditEntity): AuditLog => ({
+          id: auditEntity.id,
+          actorUserId: auditEntity.userId,
+          workspaceId: auditEntity.workspaceId,
+          action: auditEntity.action,
+          targetType: auditEntity.targetType,
+          targetId: auditEntity.targetId,
+          metadata: auditEntity.metadataJson,
+          createdAt: toIsoString(auditEntity.createdAt),
+        }),
+      ),
+    );
   }
 
   private saveDatabase(): void {
-    mkdirSync(dirname(this.databasePath), { recursive: true });
+    if (!this.isDatabaseConfigured()) {
+      return;
+    }
+
     const database: DatabaseShape = {
       users: Array.from(this.users.values()),
       sessions: Array.from(this.sessions.values()),
@@ -1060,10 +1349,206 @@ export class InMemoryStoreService {
       auditLogs: this.auditLogs,
     };
 
-    writeFileSync(this.databasePath, JSON.stringify(database, null, 2));
+    this.persistQueue = this.persistQueue
+      .then(() => this.persistDatabase(database))
+      .catch((error: unknown) => {
+        this.logger.error(
+          'Failed to persist FORGE state to PostgreSQL.',
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
   }
 
   private cloneJson<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
   }
+
+  private isDatabaseConfigured(): boolean {
+    return Boolean(
+      this.userRepository &&
+      this.sessionRepository &&
+      this.workspaceRepository &&
+      this.projectRepository &&
+      this.workflowRepository &&
+      this.workflowVersionRepository &&
+      this.workflowExecutionRepository &&
+      this.workflowExecutionStepRepository &&
+      this.workflowExecutionLogRepository &&
+      this.generatedArtifactRepository &&
+      this.auditLogRepository,
+    );
+  }
+
+  private async persistDatabase(database: DatabaseShape): Promise<void> {
+    if (!this.isDatabaseConfigured()) {
+      return;
+    }
+
+    await this.userRepository!.save(
+      database.users.map((user) => ({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        passwordHash: user.passwordHash,
+        passwordSalt: user.passwordSalt,
+        createdAt: new Date(user.createdAt),
+      })),
+    );
+    await this.sessionRepository!.save(
+      database.sessions.map((session) => ({
+        token: session.token,
+        userId: session.userId,
+        createdAt: new Date(session.createdAt),
+        expiresAt: new Date(session.expiresAt),
+      })),
+    );
+    await this.workspaceRepository!.save(
+      database.workspaces.map((workspace) => ({
+        id: workspace.id,
+        userId: workspace.createdByUserId,
+        name: workspace.name,
+        slug: workspace.slug,
+        description: null,
+        status: 'active' as const,
+        createdAt: new Date(workspace.createdAt),
+        updatedAt: new Date(workspace.createdAt),
+      })),
+    );
+    await this.projectRepository!.save(
+      database.projects.map((project) => ({
+        id: project.id,
+        workspaceId: project.workspaceId,
+        name: project.name,
+        slug: project.slug,
+        description: project.description,
+        createdByUserId: project.createdByUserId,
+        createdAt: new Date(project.createdAt),
+        updatedAt: new Date(project.createdAt),
+      })),
+    );
+    await this.workflowRepository!.save(
+      database.workflows.map((workflow) => {
+        const project = this.projects.get(workflow.projectId);
+
+        return {
+          id: workflow.id,
+          workspaceId: project?.workspaceId ?? workflow.projectId,
+          projectId: workflow.projectId || null,
+          name: workflow.name,
+          slug: workflow.slug,
+          description: workflow.description,
+          status: workflow.status,
+          draftVersionId: workflow.draftVersionId || null,
+          publishedVersionId: workflow.publishedVersionId,
+          createdByUserId: workflow.createdByUserId,
+          createdAt: new Date(workflow.createdAt),
+          updatedAt: new Date(workflow.updatedAt),
+        };
+      }),
+    );
+    await this.workflowVersionRepository!.save(
+      database.workflowVersions.map((version) => ({
+        id: version.id,
+        workflowId: version.workflowId,
+        projectId: version.projectId || null,
+        versionNumber: version.versionNumber,
+        status: version.status,
+        nodesJson: version.graph.nodes,
+        edgesJson: version.graph.edges,
+        viewportJson: null,
+        validation: version.validation,
+        compiledIr: version.compiledIr,
+        createdBy: version.createdByUserId,
+        createdAt: new Date(version.createdAt),
+        updatedAt: new Date(version.updatedAt),
+        publishedAt: version.publishedAt ? new Date(version.publishedAt) : null,
+      })),
+    );
+    await this.workflowExecutionRepository!.save(
+      database.workflowExecutions.map((execution) => ({
+        id: execution.id,
+        projectId: execution.projectId,
+        workflowId: execution.workflowId,
+        workflowVersionId: execution.workflowVersionId,
+        status: execution.status,
+        triggerType: execution.triggerType,
+        traceId: execution.traceId,
+        idempotencyKey: execution.idempotencyKey,
+        input: execution.input,
+        output: execution.output,
+        error: execution.error,
+        createdAt: new Date(execution.createdAt),
+        startedAt: execution.startedAt ? new Date(execution.startedAt) : null,
+        completedAt: execution.completedAt
+          ? new Date(execution.completedAt)
+          : null,
+        updatedAt: new Date(execution.updatedAt),
+      })),
+    );
+    await this.workflowExecutionStepRepository!.save(
+      database.workflowExecutionSteps.map((step) => ({
+        id: step.id,
+        executionId: step.executionId,
+        workflowVersionId: step.workflowVersionId,
+        nodeId: step.nodeId,
+        nodeType: step.nodeType,
+        label: step.label,
+        status: step.status,
+        attempt: step.attempt,
+        maxAttempts: step.maxAttempts,
+        input: step.input,
+        output: step.output,
+        error: step.error,
+        startedAt: step.startedAt ? new Date(step.startedAt) : null,
+        completedAt: step.completedAt ? new Date(step.completedAt) : null,
+        durationMs: step.durationMs,
+        updatedAt: new Date(step.updatedAt),
+      })),
+    );
+    await this.workflowExecutionLogRepository!.save(
+      database.workflowExecutionLogs.map((log) => ({
+        id: log.id,
+        executionId: log.executionId,
+        stepId: log.stepId,
+        traceId: log.traceId,
+        level: log.level,
+        message: log.message,
+        metadata: log.metadata,
+        createdAt: new Date(log.createdAt),
+      })),
+    );
+    await this.generatedArtifactRepository!.save(
+      database.generatedArtifacts.map((artifact) => ({
+        id: artifact.id,
+        projectId: artifact.projectId,
+        workflowId: artifact.workflowId,
+        workflowVersionId: artifact.workflowVersionId,
+        type: artifact.type,
+        name: artifact.name,
+        contentType: artifact.contentType,
+        checksum: artifact.checksum,
+        content: artifact.content,
+        createdAt: new Date(artifact.createdAt),
+      })),
+    );
+    await this.auditLogRepository!.save(
+      database.auditLogs.map((log) => ({
+        id: log.id,
+        userId: log.actorUserId,
+        workspaceId: log.workspaceId,
+        workflowId: log.targetType === 'workflow' ? log.targetId : null,
+        action: log.action,
+        targetType: log.targetType,
+        targetId: log.targetId,
+        metadataJson: log.metadata,
+        createdAt: new Date(log.createdAt),
+      })),
+    );
+  }
+}
+
+function toIsoString(value: Date | string): string {
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }

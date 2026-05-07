@@ -27,6 +27,34 @@ export class WorkspacesService {
     };
   }
 
+  updateWorkspace(
+    workspaceId: string,
+    userId: string,
+    body: Record<string, unknown>,
+  ) {
+    const name =
+      body.name === undefined
+        ? undefined
+        : requireString(body.name, 'name', 80);
+    const description =
+      body.description === undefined || body.description === null
+        ? null
+        : requireString(body.description, 'description', 280);
+
+    return {
+      workspace: this.store.updateWorkspace(workspaceId, userId, {
+        name,
+        description,
+      }),
+    };
+  }
+
+  deleteWorkspace(workspaceId: string, userId: string) {
+    this.store.deleteWorkspace(workspaceId, userId);
+
+    return { ok: true };
+  }
+
   listProjects(workspaceId: string, userId: string) {
     return {
       projects: this.store.listProjects(workspaceId, userId),

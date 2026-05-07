@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -35,6 +37,27 @@ export class WorkspacesController {
     @Param('workspaceId') workspaceId: string,
   ) {
     return this.workspacesService.getWorkspace(workspaceId, request.user.id);
+  }
+
+  @Patch(':workspaceId')
+  updateWorkspace(
+    @Req() request: AuthenticatedRequest,
+    @Param('workspaceId') workspaceId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.workspacesService.updateWorkspace(
+      workspaceId,
+      request.user.id,
+      body,
+    );
+  }
+
+  @Delete(':workspaceId')
+  deleteWorkspace(
+    @Req() request: AuthenticatedRequest,
+    @Param('workspaceId') workspaceId: string,
+  ) {
+    return this.workspacesService.deleteWorkspace(workspaceId, request.user.id);
   }
 
   @Get(':workspaceId/projects')
