@@ -81,6 +81,62 @@ export class WorkflowsController {
     );
   }
 
+  @Get(':workflowId/versions')
+  listVersions(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+  ) {
+    return this.workflowsService.listVersions(
+      projectId,
+      workflowId,
+      request.user.id,
+    );
+  }
+
+  @Post(':workflowId/versions/:workflowVersionId/activate')
+  activateVersion(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+    @Param('workflowVersionId') workflowVersionId: string,
+  ) {
+    return this.workflowsService.activateVersion(
+      projectId,
+      workflowId,
+      workflowVersionId,
+      request.user.id,
+    );
+  }
+
+  @Post(':workflowId/versions/:workflowVersionId/rollback')
+  rollbackToVersion(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+    @Param('workflowVersionId') workflowVersionId: string,
+  ) {
+    return this.workflowsService.rollbackToVersion(
+      projectId,
+      workflowId,
+      workflowVersionId,
+      request.user.id,
+    );
+  }
+
+  @Post(':workflowId/deactivate')
+  deactivateWorkflow(
+    @Req() request: AuthenticatedRequest,
+    @Param('projectId') projectId: string,
+    @Param('workflowId') workflowId: string,
+  ) {
+    return this.workflowsService.deactivateWorkflow(
+      projectId,
+      workflowId,
+      request.user.id,
+    );
+  }
+
   @Get(':workflowId/artifacts')
   listGeneratedArtifacts(
     @Req() request: AuthenticatedRequest,

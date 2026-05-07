@@ -96,17 +96,21 @@ export function DashboardPage() {
             compilationResult={app.compilationResult}
             generatedArtifacts={app.generatedArtifacts}
             isBusy={app.isBusy}
+            isChangingVersion={app.isChangingVersion}
             isCompilingDraft={app.isCompilingDraft}
             isPublishingDraft={app.isPublishingDraft}
             isSavingDraft={app.isSavingDraft}
             nodeDefinitions={app.nodeDefinitions}
             onAddEdge={app.handleAddEdge}
             onAddNode={app.handleAddNode}
+            onActivateVersion={app.handleActivateVersion}
             onCompileDraft={app.handleCompileDraft}
             onCreateWorkflow={app.handleCreateWorkflow}
+            onDeactivateWorkflow={app.handleDeactivateWorkflow}
             onPublishDraft={app.handlePublishDraft}
             onRemoveEdge={app.handleRemoveEdge}
             onRemoveNode={app.handleRemoveNode}
+            onRollbackVersion={app.handleRollbackVersion}
             onSelectWorkflow={app.handleSelectWorkflow}
             onSetWorkflowDescription={app.setWorkflowDescription}
             onSetWorkflowName={app.setWorkflowName}
@@ -121,6 +125,7 @@ export function DashboardPage() {
             workflowDescription={app.workflowDescription}
             workflowDraft={app.workflowDraft}
             workflowName={app.workflowName}
+            workflowVersions={app.workflowVersions}
             workflows={app.workflows}
           />
         </section>

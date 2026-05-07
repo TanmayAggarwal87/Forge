@@ -54,7 +54,7 @@ export type AuditLog = {
   createdAt: string;
 };
 
-export type WorkflowStatus = 'draft' | 'published';
+export type WorkflowStatus = 'draft' | 'published' | 'inactive';
 
 export type Workflow = {
   id: string;
@@ -147,6 +147,11 @@ export type WorkflowCompilationResult = {
   isValid: boolean;
   issues: WorkflowValidationIssue[];
   ir: WorkflowIntermediateRepresentation | null;
+};
+
+export type WorkflowVersionMigrationReport = {
+  isCompatible: boolean;
+  issues: WorkflowValidationIssue[];
 };
 
 export type GeneratedArtifactType =

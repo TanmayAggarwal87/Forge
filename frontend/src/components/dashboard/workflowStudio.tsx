@@ -8,6 +8,8 @@ import {
   Layers3,
   Play,
   Plus,
+  Power,
+  RotateCcw,
   Save,
   Trash2,
 } from "lucide-react";
@@ -18,6 +20,7 @@ import type {
   Project,
   Workflow,
   WorkflowCompilationResult,
+  WorkflowVersionSummary,
 } from "@/types/domainTypes";
 
 type WorkflowStudioProps = {
@@ -25,17 +28,21 @@ type WorkflowStudioProps = {
   compilationResult: WorkflowCompilationResult | null;
   generatedArtifacts: GeneratedArtifact[];
   isBusy: boolean;
+  isChangingVersion: boolean;
   isCompilingDraft: boolean;
   isPublishingDraft: boolean;
   isSavingDraft: boolean;
   nodeDefinitions: NodeDefinition[];
   onAddEdge: (sourceNodeId: string, targetNodeId: string, label: string) => void;
   onAddNode: (definition: NodeDefinition) => void;
+  onActivateVersion: (workflowVersionId: string) => void;
   onCompileDraft: () => void;
   onCreateWorkflow: (event: FormEvent<HTMLFormElement>) => void;
+  onDeactivateWorkflow: () => void;
   onPublishDraft: () => void;
   onRemoveEdge: (edgeId: string) => void;
   onRemoveNode: (nodeId: string) => void;
+  onRollbackVersion: (workflowVersionId: string) => void;
   onSelectWorkflow: (workflowId: string) => void;
   onSetWorkflowDescription: (value: string) => void;
   onSetWorkflowName: (value: string) => void;
@@ -50,6 +57,7 @@ type WorkflowStudioProps = {
   workflowDescription: string;
   workflowDraft: Workflow | null;
   workflowName: string;
+  workflowVersions: WorkflowVersionSummary[];
   workflows: Workflow[];
 };
 
@@ -73,17 +81,21 @@ export function WorkflowStudio({
   compilationResult,
   generatedArtifacts,
   isBusy,
+  isChangingVersion,
   isCompilingDraft,
   isPublishingDraft,
   isSavingDraft,
   nodeDefinitions,
   onAddEdge,
   onAddNode,
+  onActivateVersion,
   onCompileDraft,
   onCreateWorkflow,
+  onDeactivateWorkflow,
   onPublishDraft,
   onRemoveEdge,
   onRemoveNode,
+  onRollbackVersion,
   onSelectWorkflow,
   onSetWorkflowDescription,
   onSetWorkflowName,
@@ -98,6 +110,7 @@ export function WorkflowStudio({
   workflowDescription,
   workflowDraft,
   workflowName,
+  workflowVersions,
   workflows,
 }: WorkflowStudioProps) {
   const [sourceNodeId, setSourceNodeId] = useState("");
@@ -547,6 +560,109 @@ export function WorkflowStudio({
                     ) : null}
                   </div>
                 ) : null}
+
+                <div className="mt-4 rounded-2xl border border-white/80 bg-white/80 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2 font-semibold text-stone-950">
+                      <RotateCcw className="size-4 text-amber-700" />
+                      Release management
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      disabled={
+                        isChangingVersion ||
+                        workflowDraft.status !== "published"
+                      }
+                      onClick={onDeactivateWorkflow}
+                    >
+                      <Power />
+                      Deactivate live
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 grid gap-3">
+                    {workflowVersions.length === 0 ? (
+                      <p className="rounded-xl border border-dashed border-stone-300 bg-white p-3 text-sm text-stone-600">
+                        Publish this workflow to create immutable versions for
+                        activation and rollback.
+                      </p>
+                    ) : (
+                      workflowVersions.map((version) => (
+                        <article
+                          key={version.id}
+                          className="rounded-xl border border-stone-200 bg-white p-3"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-medium text-stone-950">
+                                  Version {version.versionNumber}
+                                </p>
+                                <span className="rounded-lg bg-stone-100 px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-stone-600">
+                                  {version.isActive ? "active" : version.status}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-xs text-stone-500">
+                                {version.generatedArtifactCount} artifacts
+                                {version.compiledIr
+                                  ? ` - ${version.compiledIr.graphHash.slice(0, 12)}`
+                                  : ""}
+                              </p>
+                            </div>
+
+                            {version.status === "published" && !version.isActive ? (
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  variant="outline"
+                                  className="rounded-xl"
+                                  disabled={
+                                    isChangingVersion ||
+                                    !version.migrationReport.isCompatible
+                                  }
+                                  onClick={() => onActivateVersion(version.id)}
+                                >
+                                  Activate
+                                </Button>
+                                <Button
+                                  className="rounded-xl"
+                                  disabled={
+                                    isChangingVersion ||
+                                    !version.migrationReport.isCompatible ||
+                                    !workflowDraft.publishedVersionId
+                                  }
+                                  onClick={() => onRollbackVersion(version.id)}
+                                >
+                                  <RotateCcw />
+                                  Rollback
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {version.migrationReport.issues.length > 0 ? (
+                            <div className="mt-3 grid gap-2">
+                              {version.migrationReport.issues.map(
+                                (issue, index) => (
+                                  <p
+                                    key={`${version.id}-${issue.code}-${index}`}
+                                    className={`rounded-lg px-3 py-2 text-xs ${
+                                      issue.severity === "error"
+                                        ? "bg-red-50 text-red-700"
+                                        : "bg-amber-50 text-amber-700"
+                                    }`}
+                                  >
+                                    {issue.message}
+                                  </p>
+                                ),
+                              )}
+                            </div>
+                          ) : null}
+                        </article>
+                      ))
+                    )}
+                  </div>
+                </div>
 
                 <div className="mt-4 rounded-2xl border border-white/80 bg-white/80 p-4">
                   <div className="flex items-center gap-2 font-semibold text-stone-950">

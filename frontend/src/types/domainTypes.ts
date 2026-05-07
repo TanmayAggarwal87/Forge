@@ -114,6 +114,11 @@ export type WorkflowCompilationResult = {
   ir: WorkflowIntermediateRepresentation | null;
 };
 
+export type WorkflowVersionMigrationReport = {
+  isCompatible: boolean;
+  issues: WorkflowValidationIssue[];
+};
+
 export type GeneratedArtifactType =
   | "openapi"
   | "endpoint_contract"
@@ -142,8 +147,20 @@ export type WorkflowDraftVersion = {
   status: "draft" | "published";
   graph: WorkflowGraph;
   validation: WorkflowValidationResult;
+  compiledIr?: WorkflowIntermediateRepresentation | null;
+  createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
+  publishedAt?: string | null;
+};
+
+export type WorkflowVersionSummary = WorkflowDraftVersion & {
+  compiledIr: WorkflowIntermediateRepresentation | null;
+  createdByUserId: string;
+  publishedAt: string | null;
+  isActive: boolean;
+  migrationReport: WorkflowVersionMigrationReport;
+  generatedArtifactCount: number;
 };
 
 export type Workflow = {
@@ -152,7 +169,9 @@ export type Workflow = {
   name: string;
   slug: string;
   description: string | null;
-  status: "draft" | "published";
+  status: "draft" | "published" | "inactive";
+  draftVersionId?: string;
+  publishedVersionId?: string | null;
   createdAt: string;
   updatedAt: string;
   draftVersion: WorkflowDraftVersion;

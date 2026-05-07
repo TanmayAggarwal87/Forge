@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   CloudUpload,
+  FileCode2,
   Redo2,
   Save,
   Undo2,
   UserCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ArtifactDrawer } from "@/features/workflow/components/artifactDrawer";
 import { NodeConfigPanel } from "@/features/workflow/components/nodeConfigPanel";
 import { NodeLibrarySidebar } from "@/features/workflow/components/nodeLibrarySidebar";
 import { StatusBar } from "@/features/workflow/components/statusBar";
@@ -26,6 +28,7 @@ type WorkspaceEditorProps = {
 
 export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   const router = useRouter();
+  const [artifactDrawerOpen, setArtifactDrawerOpen] = useState(false);
 
   const ensureWorkflow = useWorkflowStore((state) => state.ensureWorkflow);
   const saveWorkflow = useWorkflowStore((state) => state.saveWorkflow);
@@ -134,6 +137,14 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
             <CloudUpload />
             Deploy
           </Button>
+          <Button
+            variant={artifactDrawerOpen ? "default" : "outline"}
+            onClick={() => setArtifactDrawerOpen((open) => !open)}
+            className="rounded-md"
+          >
+            <FileCode2 />
+            Artifacts
+          </Button>
           <div className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-600">
             <UserCircle2 className="size-4" />
             Profile
@@ -143,8 +154,8 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
 
       <section
         className={`grid min-h-0 flex-1 overflow-hidden ${
-          selectedNode
-            ? "grid-cols-[280px_minmax(0,1fr)_340px]"
+          artifactDrawerOpen || selectedNode
+            ? "grid-cols-[280px_minmax(0,1fr)_420px]"
             : "grid-cols-[280px_minmax(0,1fr)]"
         }`}
       >
@@ -152,7 +163,14 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
         <div className="min-w-0">
           <WorkflowCanvas workspaceId={workspaceId} workflow={workflow} />
         </div>
-        {selectedNode ? <NodeConfigPanel workspaceId={workspaceId} node={selectedNode} /> : null}
+        {artifactDrawerOpen ? (
+          <ArtifactDrawer
+            workflow={workflow}
+            onClose={() => setArtifactDrawerOpen(false)}
+          />
+        ) : selectedNode ? (
+          <NodeConfigPanel workspaceId={workspaceId} node={selectedNode} />
+        ) : null}
       </section>
 
       <StatusBar

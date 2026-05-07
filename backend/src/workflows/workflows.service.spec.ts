@@ -192,4 +192,156 @@ describe('WorkflowsService', () => {
       ]),
     );
   });
+
+  it('lists versions, rolls back the active version, and deactivates without mutating published versions', () => {
+    const store = new InMemoryStoreService();
+    const workflowsService = new WorkflowsService(store);
+
+    const registration = store.register(
+      'release@example.com',
+      'password123',
+      'Release Manager',
+    );
+    const workspace = store.createWorkspace({
+      actorUserId: registration.user.id,
+      name: 'Release Workspace',
+    });
+    const project = store.createProject({
+      actorUserId: registration.user.id,
+      workspaceId: workspace.id,
+      name: 'Release Project',
+      description: null,
+    });
+    const created = workflowsService.createWorkflow(
+      project.id,
+      registration.user.id,
+      {
+        name: 'Release workflow',
+        graph: publishableGraph('/release-v1', 201),
+      },
+    );
+    const firstPublish = workflowsService.publishDraft(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+
+    workflowsService.saveDraft(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+      {
+        graph: publishableGraph('/release-v2', 202),
+      },
+    );
+    const secondPublish = workflowsService.publishDraft(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+
+    const listedAfterPublish = workflowsService.listVersions(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+    expect(listedAfterPublish.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: firstPublish.workflow.publishedVersion.id,
+          status: 'published',
+          isActive: false,
+        }),
+        expect.objectContaining({
+          id: secondPublish.workflow.publishedVersion.id,
+          status: 'published',
+          isActive: true,
+        }),
+      ]),
+    );
+
+    const rollback = workflowsService.rollbackToVersion(
+      project.id,
+      created.workflow.id,
+      firstPublish.workflow.publishedVersion.id,
+      registration.user.id,
+    );
+    expect(rollback.workflow.publishedVersionId).toBe(
+      firstPublish.workflow.publishedVersion.id,
+    );
+    expect(rollback.workflow.previousVersionId).toBe(
+      secondPublish.workflow.publishedVersion.id,
+    );
+
+    const listedAfterRollback = workflowsService.listVersions(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+    expect(listedAfterRollback.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: firstPublish.workflow.publishedVersion.id,
+          status: 'published',
+          isActive: true,
+        }),
+        expect.objectContaining({
+          id: secondPublish.workflow.publishedVersion.id,
+          status: 'published',
+          isActive: false,
+        }),
+      ]),
+    );
+
+    const deactivated = workflowsService.deactivateWorkflow(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+    expect(deactivated.workflow.status).toBe('inactive');
+    expect(deactivated.workflow.publishedVersionId).toBeNull();
+
+    const auditLogs = store.listAuditLogs(workspace.id, registration.user.id);
+    expect(auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'workflow.published' }),
+        expect.objectContaining({ action: 'workflow.rolled_back' }),
+        expect.objectContaining({ action: 'workflow.deactivated' }),
+      ]),
+    );
+  });
 });
+
+function publishableGraph(path: string, statusCode: number) {
+  return {
+    nodes: [
+      {
+        id: 'trigger-1',
+        type: 'trigger.http',
+        label: 'HTTP Trigger',
+        position: { x: 0, y: 0 },
+        config: {
+          method: 'POST',
+          path,
+        },
+      },
+      {
+        id: 'response-1',
+        type: 'utility.response_builder',
+        label: 'Response',
+        position: { x: 180, y: 0 },
+        config: {
+          statusCode,
+        },
+      },
+    ],
+    edges: [
+      {
+        id: 'edge-1',
+        sourceNodeId: 'trigger-1',
+        targetNodeId: 'response-1',
+        label: null,
+      },
+    ],
+  };
+}

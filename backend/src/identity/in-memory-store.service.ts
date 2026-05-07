@@ -65,6 +65,20 @@ type PublishWorkflowInput = {
   actorUserId: string;
 };
 
+type ActivateWorkflowVersionInput = {
+  projectId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  actorUserId: string;
+  auditAction: 'workflow.version_activated' | 'workflow.rolled_back';
+};
+
+type DeactivateWorkflowInput = {
+  projectId: string;
+  workflowId: string;
+  actorUserId: string;
+};
+
 type CreateExecutionInput = {
   projectId: string;
   workflowId: string;
@@ -528,6 +542,130 @@ export class InMemoryStoreService {
     return {
       ...updatedWorkflow,
       publishedVersion,
+    };
+  }
+
+  listWorkflowVersionsForUser(
+    projectId: string,
+    workflowId: string,
+    userId: string,
+  ): WorkflowVersion[] {
+    const workflow = this.getWorkflowDraftForUser(
+      projectId,
+      workflowId,
+      userId,
+    );
+
+    return Array.from(this.workflowVersions.values())
+      .filter((version) => version.workflowId === workflow.id)
+      .sort((left, right) => right.versionNumber - left.versionNumber);
+  }
+
+  getWorkflowVersionForUser(
+    projectId: string,
+    workflowId: string,
+    workflowVersionId: string,
+    userId: string,
+  ): WorkflowVersion {
+    const workflow = this.getWorkflowDraftForUser(
+      projectId,
+      workflowId,
+      userId,
+    );
+    const version = this.workflowVersions.get(workflowVersionId);
+
+    if (!version || version.workflowId !== workflow.id) {
+      throw new NotFoundException('Workflow version was not found.');
+    }
+
+    return version;
+  }
+
+  activateWorkflowVersion(input: ActivateWorkflowVersionInput): Workflow & {
+    activeVersion: WorkflowVersion;
+    previousVersionId: string | null;
+  } {
+    const workflow = this.getWorkflowDraftForUser(
+      input.projectId,
+      input.workflowId,
+      input.actorUserId,
+    );
+    const project = this.getProjectForUser(input.projectId, input.actorUserId);
+    const version = this.workflowVersions.get(input.workflowVersionId);
+
+    if (
+      !version ||
+      version.workflowId !== workflow.id ||
+      version.status !== 'published'
+    ) {
+      throw new NotFoundException('Published workflow version was not found.');
+    }
+
+    const now = new Date().toISOString();
+    const previousVersionId = workflow.publishedVersionId;
+    const updatedWorkflow: Workflow = {
+      ...workflow,
+      status: 'published',
+      publishedVersionId: version.id,
+      updatedAt: now,
+    };
+
+    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.recordAudit({
+      actorUserId: input.actorUserId,
+      workspaceId: project.workspaceId,
+      action: input.auditAction,
+      targetType: 'workflow',
+      targetId: workflow.id,
+      metadata: {
+        previousVersionId,
+        workflowVersionId: version.id,
+        versionNumber: version.versionNumber,
+        graphHash: version.compiledIr?.graphHash ?? null,
+      },
+    });
+    this.saveDatabase();
+
+    return {
+      ...updatedWorkflow,
+      activeVersion: version,
+      previousVersionId,
+    };
+  }
+
+  deactivateWorkflow(input: DeactivateWorkflowInput): Workflow & {
+    previousVersionId: string | null;
+  } {
+    const workflow = this.getWorkflowDraftForUser(
+      input.projectId,
+      input.workflowId,
+      input.actorUserId,
+    );
+    const project = this.getProjectForUser(input.projectId, input.actorUserId);
+    const previousVersionId = workflow.publishedVersionId;
+    const updatedWorkflow: Workflow = {
+      ...workflow,
+      status: previousVersionId ? 'inactive' : workflow.status,
+      publishedVersionId: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.recordAudit({
+      actorUserId: input.actorUserId,
+      workspaceId: project.workspaceId,
+      action: 'workflow.deactivated',
+      targetType: 'workflow',
+      targetId: workflow.id,
+      metadata: {
+        previousVersionId,
+      },
+    });
+    this.saveDatabase();
+
+    return {
+      ...updatedWorkflow,
+      previousVersionId,
     };
   }
 

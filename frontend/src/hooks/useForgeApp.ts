@@ -15,6 +15,7 @@ import type {
   SessionUser,
   Workflow,
   WorkflowCompilationResult,
+  WorkflowVersionSummary,
   Workspace,
 } from "@/types/domainTypes";
 
@@ -76,11 +77,15 @@ export function useForgeApp() {
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isCompilingDraft, setIsCompilingDraft] = useState(false);
   const [isPublishingDraft, setIsPublishingDraft] = useState(false);
+  const [isChangingVersion, setIsChangingVersion] = useState(false);
   const [compilationResult, setCompilationResult] =
     useState<WorkflowCompilationResult | null>(null);
   const [generatedArtifacts, setGeneratedArtifacts] = useState<GeneratedArtifact[]>(
     [],
   );
+  const [workflowVersions, setWorkflowVersions] = useState<
+    WorkflowVersionSummary[]
+  >([]);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
     null,
   );
@@ -158,6 +163,7 @@ export function useForgeApp() {
       setWorkflowDraft(null);
       setCompilationResult(null);
       setGeneratedArtifacts([]);
+      setWorkflowVersions([]);
       setSelectedArtifactId(null);
       lastSavedSignatureRef.current = null;
       latestDraftSignatureRef.current = null;
@@ -298,6 +304,22 @@ export function useForgeApp() {
     [request, setArtifactPayload],
   );
 
+  const loadWorkflowVersions = useCallback(
+    async function loadWorkflowVersions(
+      activeToken: string,
+      projectId: string,
+      workflowId: string,
+    ) {
+      const payload = await request<{ versions: WorkflowVersionSummary[] }>(
+        `/projects/${projectId}/workflows/${workflowId}/versions`,
+        {},
+        activeToken,
+      );
+      setWorkflowVersions(payload.versions);
+    },
+    [request],
+  );
+
   const loadWorkflowDraft = useCallback(
     async function loadWorkflowDraft(
       activeToken: string,
@@ -318,13 +340,20 @@ export function useForgeApp() {
       setCompilationResult(null);
       replaceWorkflowSummary(createWorkflowSummary(payload.workflow));
       setAutosaveState(signature ? "saved" : "idle");
+      await loadWorkflowVersions(activeToken, projectId, workflowId);
       if (payload.workflow.status === "published") {
         await loadGeneratedArtifacts(activeToken, projectId, workflowId);
       } else {
         setArtifactPayload([]);
       }
     },
-    [loadGeneratedArtifacts, replaceWorkflowSummary, request, setArtifactPayload],
+    [
+      loadGeneratedArtifacts,
+      loadWorkflowVersions,
+      replaceWorkflowSummary,
+      request,
+      setArtifactPayload,
+    ],
   );
 
   const loadSession = useCallback(
@@ -571,6 +600,7 @@ export function useForgeApp() {
     setWorkflowDraft(null);
     setCompilationResult(null);
     setArtifactPayload([]);
+    setWorkflowVersions([]);
     setAutosaveState("idle");
   }
 
@@ -581,6 +611,7 @@ export function useForgeApp() {
     setWorkflowDraft(null);
     setCompilationResult(null);
     setArtifactPayload([]);
+    setWorkflowVersions([]);
     setAutosaveState("idle");
   }
 
@@ -589,6 +620,7 @@ export function useForgeApp() {
     setWorkflowDraft(null);
     setCompilationResult(null);
     setArtifactPayload([]);
+    setWorkflowVersions([]);
     setAutosaveState("idle");
   }
 
@@ -804,11 +836,74 @@ export function useForgeApp() {
       replaceWorkflowSummary(createWorkflowSummary(payload.workflow));
       setCompilationResult(payload.compilation);
       setArtifactPayload(payload.generatedArtifacts);
+      await loadWorkflowVersions(token, selectedProjectId, workflowDraft.id);
       setAutosaveState("saved");
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsPublishingDraft(false);
+    }
+  }
+
+  async function handleActivateVersion(workflowVersionId: string) {
+    await changeWorkflowVersion(workflowVersionId, "activate");
+  }
+
+  async function handleRollbackVersion(workflowVersionId: string) {
+    await changeWorkflowVersion(workflowVersionId, "rollback");
+  }
+
+  async function changeWorkflowVersion(
+    workflowVersionId: string,
+    action: "activate" | "rollback",
+  ) {
+    if (!token || !selectedProjectId || !workflowDraft) {
+      return;
+    }
+
+    setIsChangingVersion(true);
+    setErrorMessage(null);
+
+    try {
+      const payload = await request<{
+        workflow: Workflow;
+        generatedArtifacts: GeneratedArtifact[];
+      }>(
+        `/projects/${selectedProjectId}/workflows/${workflowDraft.id}/versions/${workflowVersionId}/${action}`,
+        { method: "POST" },
+      );
+      setWorkflowDraft(payload.workflow);
+      replaceWorkflowSummary(createWorkflowSummary(payload.workflow));
+      setArtifactPayload(payload.generatedArtifacts);
+      await loadWorkflowVersions(token, selectedProjectId, workflowDraft.id);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsChangingVersion(false);
+    }
+  }
+
+  async function handleDeactivateWorkflow() {
+    if (!token || !selectedProjectId || !workflowDraft) {
+      return;
+    }
+
+    setIsChangingVersion(true);
+    setErrorMessage(null);
+
+    try {
+      const payload = await request<{ workflow: Workflow }>(
+        `/projects/${selectedProjectId}/workflows/${workflowDraft.id}/deactivate`,
+        { method: "POST" },
+      );
+      setWorkflowDraft(payload.workflow);
+      replaceWorkflowSummary(createWorkflowSummary(payload.workflow));
+      setArtifactPayload([]);
+      await loadWorkflowVersions(token, selectedProjectId, workflowDraft.id);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsChangingVersion(false);
     }
   }
 
@@ -827,13 +922,16 @@ export function useForgeApp() {
     generatedArtifacts,
     handleAddEdge,
     handleAddNode,
+    handleActivateVersion,
     handleCompileDraft,
+    handleDeactivateWorkflow,
     handlePublishDraft,
     handleCreateProject,
     handleCreateWorkflow,
     handleCreateWorkspace,
     handleRemoveEdge,
     handleRemoveNode,
+    handleRollbackVersion,
     handleSelectWorkflow,
     handleSignOut,
     handleUpdateNodeConfig,
@@ -841,6 +939,7 @@ export function useForgeApp() {
     handleWorkflowDescriptionChange,
     handleWorkflowNameChange,
     isBusy,
+    isChangingVersion,
     isCompilingDraft,
     isLoadingSession: Boolean(token && !user),
     isPublishingDraft,
@@ -867,6 +966,7 @@ export function useForgeApp() {
     workflowDescription,
     workflowDraft,
     workflowName,
+    workflowVersions,
     workflows,
     workspaceName,
     workspaces,

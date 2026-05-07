@@ -195,6 +195,102 @@ describe('WorkflowExecutionService', () => {
       ]),
     );
   });
+
+  it('executes the active version selected by rollback and blocks deactivated workflows', async () => {
+    const store = new InMemoryStoreService();
+    const workflowsService = new WorkflowsService(store);
+    const executionService = new WorkflowExecutionService(store);
+    const registration = store.register(
+      'rollback-runtime@example.com',
+      'password123',
+      'Rollback Runtime',
+    );
+    const workspace = store.createWorkspace({
+      actorUserId: registration.user.id,
+      name: 'Rollback Workspace',
+    });
+    const project = store.createProject({
+      actorUserId: registration.user.id,
+      workspaceId: workspace.id,
+      name: 'Rollback Project',
+      description: null,
+    });
+    const created = workflowsService.createWorkflow(
+      project.id,
+      registration.user.id,
+      {
+        name: 'Rollback workflow',
+        graph: {
+          nodes: [httpTriggerNode(), responseNode(201)],
+          edges: [edge('edge-1', 'trigger-1', 'response-1')],
+        },
+      },
+    );
+    const firstPublish = workflowsService.publishDraft(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+
+    workflowsService.saveDraft(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+      {
+        graph: {
+          nodes: [httpTriggerNode(), responseNode(202)],
+          edges: [edge('edge-1', 'trigger-1', 'response-1')],
+        },
+      },
+    );
+    workflowsService.publishDraft(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+    workflowsService.rollbackToVersion(
+      project.id,
+      created.workflow.id,
+      firstPublish.workflow.publishedVersion.id,
+      registration.user.id,
+    );
+
+    const rolledBackExecution = await executionService.executePublishedWorkflow(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+      {
+        triggerType: 'http',
+        input: { request: { body: { ok: true } } },
+      },
+    );
+
+    expect(rolledBackExecution.execution.workflowVersionId).toBe(
+      firstPublish.workflow.publishedVersion.id,
+    );
+    expect(rolledBackExecution.execution.output).toEqual({
+      statusCode: 201,
+      body: { request: { body: { ok: true } } },
+    });
+
+    workflowsService.deactivateWorkflow(
+      project.id,
+      created.workflow.id,
+      registration.user.id,
+    );
+
+    await expect(
+      executionService.executePublishedWorkflow(
+        project.id,
+        created.workflow.id,
+        registration.user.id,
+        {
+          triggerType: 'http',
+          input: { request: { body: { ok: false } } },
+        },
+      ),
+    ).rejects.toThrow('Workflow has no published version.');
+  });
 });
 
 function createPublishedWorkflow(graph: {
