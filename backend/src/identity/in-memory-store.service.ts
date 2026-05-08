@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import {
   ConflictException,
   Injectable,
@@ -44,6 +44,10 @@ import {
   WorkspaceRole,
 } from './identity.types';
 import { ForgeMemoryState } from './stores/forge-memory-state.service';
+import { toIsoString } from './stores/utils/date.util';
+import { hashPassword, isPasswordValid } from './stores/utils/password.util';
+import { slugify } from './stores/utils/slug.util';
+import { isUuid, toNullableUuid } from './stores/utils/uuid.util';
 
 type CreateWorkspaceInput = {
   name: string;
@@ -206,7 +210,7 @@ export class InMemoryStoreService implements OnModuleInit {
         ? undefined
         : this.state.users.get(existingUserId);
 
-    if (!user || !this.isPasswordValid(user, password)) {
+    if (!user || !isPasswordValid(user, password)) {
       throw new UnauthorizedException('Email or password is incorrect.');
     }
 
@@ -275,7 +279,7 @@ export class InMemoryStoreService implements OnModuleInit {
     const workspace: Workspace = {
       id: randomUUID(),
       name: input.name,
-      slug: this.slugify(input.name),
+      slug: slugify(input.name),
       createdByUserId: input.actorUserId,
       createdAt: new Date().toISOString(),
     };
@@ -309,7 +313,7 @@ export class InMemoryStoreService implements OnModuleInit {
     const updatedWorkspace: Workspace = {
       id: existing.id,
       name: patch.name ?? existing.name,
-      slug: this.slugify(patch.name ?? existing.name),
+      slug: slugify(patch.name ?? existing.name),
       createdByUserId: existing.createdByUserId,
       createdAt: existing.createdAt,
     };
@@ -405,7 +409,7 @@ export class InMemoryStoreService implements OnModuleInit {
       id: randomUUID(),
       workspaceId: input.workspaceId,
       name: input.name,
-      slug: this.slugify(input.name),
+      slug: slugify(input.name),
       description: input.description?.trim() || null,
       createdByUserId: input.actorUserId,
       createdAt: new Date().toISOString(),
@@ -468,7 +472,7 @@ export class InMemoryStoreService implements OnModuleInit {
       id: randomUUID(),
       projectId: input.projectId,
       name: input.name,
-      slug: this.slugify(input.name),
+      slug: slugify(input.name),
       description: input.description?.trim() || null,
       status: 'draft',
       draftVersionId: draftVersion.id,
@@ -565,7 +569,7 @@ export class InMemoryStoreService implements OnModuleInit {
     const updatedWorkflow: Workflow = {
       ...workflow,
       name: input.name ?? workflow.name,
-      slug: this.slugify(input.name ?? workflow.name),
+      slug: slugify(input.name ?? workflow.name),
       description:
         input.description === undefined
           ? workflow.description
@@ -1045,7 +1049,7 @@ export class InMemoryStoreService implements OnModuleInit {
       id: randomUUID(),
       email,
       name: name?.trim() || email.split('@')[0],
-      passwordHash: this.hashPassword(password, passwordSalt),
+      passwordHash: hashPassword(password, passwordSalt),
       passwordSalt,
       createdAt: now,
     };
@@ -1072,33 +1076,6 @@ export class InMemoryStoreService implements OnModuleInit {
       createdAt: new Date().toISOString(),
       ...input,
     });
-  }
-
-  private slugify(value: string): string {
-    const slug = value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-
-    return slug || randomUUID();
-  }
-
-  private hashPassword(password: string, salt: string): string {
-    return scryptSync(password, salt, 64).toString('hex');
-  }
-
-  private isPasswordValid(user: User, password: string): boolean {
-    const expectedHash = Buffer.from(user.passwordHash, 'hex');
-    const providedHash = Buffer.from(
-      this.hashPassword(password, user.passwordSalt),
-      'hex',
-    );
-
-    return (
-      expectedHash.length === providedHash.length &&
-      timingSafeEqual(expectedHash, providedHash)
-    );
   }
 
   private toSessionUser(user: User): SessionUser {
@@ -1644,23 +1621,4 @@ export class InMemoryStoreService implements OnModuleInit {
 
     await this.dataSource.runMigrations({ transaction: 'all' });
   }
-}
-
-function toIsoString(value: Date | string): string {
-  return value instanceof Date
-    ? value.toISOString()
-    : new Date(value).toISOString();
-}
-
-function toNullableUuid(value: string | null | undefined): string | null {
-  return isUuid(value) ? value : null;
-}
-
-function isUuid(value: string | null | undefined): value is string {
-  return Boolean(
-    value &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value,
-    ),
-  );
 }
