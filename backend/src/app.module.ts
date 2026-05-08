@@ -13,7 +13,9 @@ import { InMemoryStoreService } from './identity/in-memory-store.service';
 import { AuditLogStore } from './identity/stores/audit-log.store';
 import { AuthStore } from './identity/stores/auth.store';
 import { ForgeMemoryState } from './identity/stores/forge-memory-state.service';
+import { GeneratedArtifactStore } from './identity/stores/generated-artifact.store';
 import { ProjectStore } from './identity/stores/project.store';
+import { WorkflowExecutionStore } from './identity/stores/workflow-execution.store';
 import { WorkflowStore } from './identity/stores/workflow.store';
 import { WorkflowVersionStore } from './identity/stores/workflow-version.store';
 import { WorkspaceStore } from './identity/stores/workspace.store';
@@ -44,6 +46,7 @@ import { WorkflowsService } from './workflows/workflows.service';
     AuthService,
     AuthStore,
     ForgeMemoryState,
+    GeneratedArtifactStore,
     InMemoryStoreService,
     ProjectStore,
     ProjectsService,
@@ -52,6 +55,7 @@ import { WorkflowsService } from './workflows/workflows.service';
     WorkflowStore,
     WorkflowVersionStore,
     WorkflowsService,
+    WorkflowExecutionStore,
     WorkspacesService,
     WorkspaceStore,
   ],

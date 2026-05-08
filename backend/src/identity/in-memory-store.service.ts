@@ -1,11 +1,4 @@
-import { randomUUID } from 'crypto';
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleInit,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { DataSource, Repository } from 'typeorm';
 import { shouldRunDatabaseMigrations } from '../database/database.config';
@@ -44,9 +37,11 @@ import {
 import { AuditLogStore } from './stores/audit-log.store';
 import { AuthStore } from './stores/auth.store';
 import { ForgeMemoryState } from './stores/forge-memory-state.service';
+import { GeneratedArtifactStore } from './stores/generated-artifact.store';
 import { ProjectStore } from './stores/project.store';
 import { toIsoString } from './stores/utils/date.util';
 import { isUuid, toNullableUuid } from './stores/utils/uuid.util';
+import { WorkflowExecutionStore } from './stores/workflow-execution.store';
 import { WorkflowStore } from './stores/workflow.store';
 import { WorkflowVersionStore } from './stores/workflow-version.store';
 import { WorkspaceStore } from './stores/workspace.store';
@@ -164,6 +159,17 @@ export class InMemoryStoreService implements OnModuleInit {
       projectStore,
       workflowStore,
       auditLogStore,
+    ),
+    @Optional()
+    private readonly workflowExecutionStore: WorkflowExecutionStore = new WorkflowExecutionStore(
+      state,
+      workflowStore,
+    ),
+    @Optional()
+    private readonly generatedArtifactStore: GeneratedArtifactStore = new GeneratedArtifactStore(
+      state,
+      workflowStore,
+      workflowVersionStore,
     ),
     @Optional()
     @InjectRepository(UserEntity)
@@ -377,24 +383,11 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowVersionId: string,
     artifacts: GeneratedArtifact[],
   ): GeneratedArtifact[] {
-    const version = this.getWorkflowVersionById(workflowVersionId);
-    for (const artifact of Array.from(this.state.generatedArtifacts.values())) {
-      if (artifact.workflowVersionId === workflowVersionId) {
-        this.state.generatedArtifacts.delete(artifact.id);
-      }
-    }
-
-    const normalizedArtifacts = artifacts.map((artifact) => ({
-      ...artifact,
-      projectId: version.projectId,
-      workflowId: version.workflowId,
-      workflowVersionId,
-    }));
-
-    for (const artifact of normalizedArtifacts) {
-      this.state.generatedArtifacts.set(artifact.id, artifact);
-    }
-
+    const normalizedArtifacts =
+      this.generatedArtifactStore.replaceGeneratedArtifactsForVersion(
+        workflowVersionId,
+        artifacts,
+      );
     this.saveDatabase();
     return normalizedArtifacts;
   }
@@ -404,25 +397,19 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowId: string,
     userId: string,
   ): GeneratedArtifact[] {
-    const workflow = this.getPublishedWorkflowForUser(
+    return this.generatedArtifactStore.listGeneratedArtifactsForPublishedWorkflow(
       projectId,
       workflowId,
       userId,
     );
-
-    return this.listGeneratedArtifactsForVersion(workflow.publishedVersion.id);
   }
 
   listGeneratedArtifactsForVersion(
     workflowVersionId: string,
   ): GeneratedArtifact[] {
-    return Array.from(this.state.generatedArtifacts.values())
-      .filter((artifact) => artifact.workflowVersionId === workflowVersionId)
-      .sort((left, right) =>
-        left.type === right.type
-          ? left.name.localeCompare(right.name)
-          : left.type.localeCompare(right.type),
-      );
+    return this.generatedArtifactStore.listGeneratedArtifactsForVersion(
+      workflowVersionId,
+    );
   }
 
   getPublishedWorkflowForUser(
@@ -438,26 +425,8 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   createWorkflowExecution(input: CreateExecutionInput): WorkflowExecution {
-    const now = new Date().toISOString();
-    const execution: WorkflowExecution = {
-      id: randomUUID(),
-      projectId: input.projectId,
-      workflowId: input.workflowId,
-      workflowVersionId: input.workflowVersionId,
-      status: input.status,
-      triggerType: input.triggerType,
-      traceId: input.traceId,
-      idempotencyKey: input.idempotencyKey ?? null,
-      input: input.input,
-      output: null,
-      error: null,
-      createdAt: now,
-      startedAt: null,
-      completedAt: null,
-      updatedAt: now,
-    };
-
-    this.state.workflowExecutions.set(execution.id, execution);
+    const execution =
+      this.workflowExecutionStore.createWorkflowExecution(input);
     this.saveDatabase();
     return execution;
   }
@@ -468,14 +437,11 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowVersionId: string,
     idempotencyKey: string,
   ): WorkflowExecution | null {
-    return (
-      Array.from(this.state.workflowExecutions.values()).find(
-        (execution) =>
-          execution.projectId === projectId &&
-          execution.workflowId === workflowId &&
-          execution.workflowVersionId === workflowVersionId &&
-          execution.idempotencyKey === idempotencyKey,
-      ) ?? null
+    return this.workflowExecutionStore.findWorkflowExecutionByIdempotencyKey(
+      projectId,
+      workflowId,
+      workflowVersionId,
+      idempotencyKey,
     );
   }
 
@@ -488,18 +454,8 @@ export class InMemoryStoreService implements OnModuleInit {
       >
     >,
   ): WorkflowExecution {
-    const execution = this.state.workflowExecutions.get(executionId);
-    if (!execution) {
-      throw new NotFoundException('Workflow execution was not found.');
-    }
-
-    const updatedExecution: WorkflowExecution = {
-      ...execution,
-      ...patch,
-      updatedAt: new Date().toISOString(),
-    };
-
-    this.state.workflowExecutions.set(executionId, updatedExecution);
+    const updatedExecution =
+      this.workflowExecutionStore.updateWorkflowExecution(executionId, patch);
     this.saveDatabase();
     return updatedExecution;
   }
@@ -507,15 +463,17 @@ export class InMemoryStoreService implements OnModuleInit {
   upsertWorkflowExecutionStep(
     step: WorkflowExecutionStep,
   ): WorkflowExecutionStep {
-    this.state.workflowExecutionSteps.set(step.id, step);
+    const updatedStep =
+      this.workflowExecutionStore.upsertWorkflowExecutionStep(step);
     this.saveDatabase();
-    return step;
+    return updatedStep;
   }
 
   appendWorkflowExecutionLog(log: WorkflowExecutionLog): WorkflowExecutionLog {
-    this.state.workflowExecutionLogs.push(log);
+    const appendedLog =
+      this.workflowExecutionStore.appendWorkflowExecutionLog(log);
     this.saveDatabase();
-    return log;
+    return appendedLog;
   }
 
   getWorkflowExecutionForUser(
@@ -527,31 +485,16 @@ export class InMemoryStoreService implements OnModuleInit {
     steps: WorkflowExecutionStep[];
     logs: WorkflowExecutionLog[];
   } {
-    this.getWorkflowDraftForUser(projectId, workflowId, userId);
-
-    const execution = this.state.workflowExecutions.get(executionId);
-    if (
-      !execution ||
-      execution.projectId !== projectId ||
-      execution.workflowId !== workflowId
-    ) {
-      throw new NotFoundException('Workflow execution was not found.');
-    }
-
-    return {
-      ...execution,
-      steps: this.listWorkflowExecutionSteps(execution.id),
-      logs: this.listWorkflowExecutionLogs(execution.id),
-    };
+    return this.workflowExecutionStore.getWorkflowExecutionForUser(
+      projectId,
+      workflowId,
+      executionId,
+      userId,
+    );
   }
 
   getWorkflowExecutionById(executionId: string): WorkflowExecution {
-    const execution = this.state.workflowExecutions.get(executionId);
-    if (!execution) {
-      throw new NotFoundException('Workflow execution was not found.');
-    }
-
-    return execution;
+    return this.workflowExecutionStore.getWorkflowExecutionById(executionId);
   }
 
   getWorkflowVersionById(workflowVersionId: string): WorkflowVersion {
@@ -563,30 +506,19 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowId: string,
     userId: string,
   ): WorkflowExecution[] {
-    this.getWorkflowDraftForUser(projectId, workflowId, userId);
-
-    return Array.from(this.state.workflowExecutions.values())
-      .filter(
-        (execution) =>
-          execution.projectId === projectId &&
-          execution.workflowId === workflowId,
-      )
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return this.workflowExecutionStore.listWorkflowExecutionsForUser(
+      projectId,
+      workflowId,
+      userId,
+    );
   }
 
   listWorkflowExecutionSteps(executionId: string): WorkflowExecutionStep[] {
-    return Array.from(this.state.workflowExecutionSteps.values())
-      .filter((step) => step.executionId === executionId)
-      .sort(
-        (left, right) =>
-          left.startedAt?.localeCompare(right.startedAt ?? '') ?? 0,
-      );
+    return this.workflowExecutionStore.listWorkflowExecutionSteps(executionId);
   }
 
   listWorkflowExecutionLogs(executionId: string): WorkflowExecutionLog[] {
-    return this.state.workflowExecutionLogs.filter(
-      (log) => log.executionId === executionId,
-    );
+    return this.workflowExecutionStore.listWorkflowExecutionLogs(executionId);
   }
 
   listAuditLogs(workspaceId: string, userId: string): AuditLog[] {
