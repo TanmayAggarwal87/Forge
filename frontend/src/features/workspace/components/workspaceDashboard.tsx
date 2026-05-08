@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut, Pencil, Plus, Trash2, UserCircle2 } from "lucide-react";
+import { ThemeToggle } from "@/components/common/themeToggle";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
@@ -11,7 +12,7 @@ import { useUiStore } from "@/stores/uiStore";
 import { formatRelativeTime } from "@/features/workflow/utils";
 import { apiRequest, getErrorMessage } from "@/lib/apiClient";
 import { signOutSession } from "@/lib/authSession";
-import { getStoredSessionToken } from "@/lib/sessionStorage";
+import { useIsClient, useStoredSessionToken } from "@/lib/sessionStorage";
 import type { Workspace } from "@/features/workspace/types";
 
 type BackendWorkspace = {
@@ -28,7 +29,8 @@ export function WorkspaceDashboard() {
   const [editingName, setEditingName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [token] = useState<string | null>(() => getStoredSessionToken());
+  const token = useStoredSessionToken();
+  const hasLoadedToken = useIsClient();
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const setWorkspaces = useWorkspaceStore((state) => state.setWorkspaces);
@@ -48,6 +50,10 @@ export function WorkspaceDashboard() {
   );
 
   useEffect(() => {
+    if (!hasLoadedToken) {
+      return;
+    }
+
     if (!token) {
       router.replace("/login");
       return;
@@ -78,7 +84,7 @@ export function WorkspaceDashboard() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [router, setWorkspaces, token]);
+  }, [hasLoadedToken, router, setWorkspaces, token]);
 
   async function handleCreateWorkspace() {
     const trimmed = name.trim();
@@ -170,17 +176,18 @@ export function WorkspaceDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f7f8] text-slate-950">
+    <main className="forge-themed-shell min-h-screen bg-[#f6f7f8] text-slate-950 dark:bg-stone-950 dark:text-stone-50">
       <section className="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-8">
-        <header className="flex items-center justify-between border-b border-slate-200 pb-5">
+        <header className="flex items-center justify-between border-b border-slate-200 pb-5 dark:border-stone-800">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-amber-300">
               Forge
             </p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight">Workspace Dashboard</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild variant="outline" className="rounded-md border-slate-300 bg-white text-slate-700">
+            <ThemeToggle />
+            <Button asChild variant="outline" className="rounded-md border-slate-300 bg-white text-slate-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
               <Link href="/profile">
                 <UserCircle2 />
                 Profile
@@ -189,7 +196,7 @@ export function WorkspaceDashboard() {
             <Button
               variant="outline"
               onClick={() => void handleLogout()}
-              className="rounded-md border-slate-300 bg-white text-slate-700"
+              className="rounded-md border-slate-300 bg-white text-slate-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
             >
               <LogOut />
               Logout
@@ -197,15 +204,15 @@ export function WorkspaceDashboard() {
           </div>
         </header>
 
-        {!token ? (
-          <div className="mt-6 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-            Redirecting to login...
+        {!hasLoadedToken ? (
+          <div className="mt-6 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-300">
+            Checking session...
           </div>
         ) : null}
 
-        <div className="mt-6 flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
+        <div className="mt-6 flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between dark:border-stone-800">
           <div className="max-w-2xl">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 dark:text-stone-300">
               Create and manage workflow workspaces. Opening a workspace takes you directly to the canvas editor.
             </p>
           </div>
@@ -219,7 +226,7 @@ export function WorkspaceDashboard() {
                 }
               }}
               placeholder="New workspace name"
-              className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-0 placeholder:text-slate-400 focus:border-slate-950"
+              className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-0 placeholder:text-slate-400 focus:border-slate-950 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-amber-400"
             />
             <Button onClick={handleCreateWorkspace} disabled={isLoading} className="h-10 rounded-md px-4">
               <Plus />
@@ -229,14 +236,14 @@ export function WorkspaceDashboard() {
         </div>
 
         {errorMessage ? (
-          <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
             {errorMessage}
           </div>
         ) : null}
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {sortedWorkspaces.length === 0 ? (
-            <div className="col-span-full flex min-h-64 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-sm text-slate-500">
+            <div className="col-span-full flex min-h-64 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-sm text-slate-500 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400">
               No workspaces yet. Create one to start building a workflow.
             </div>
           ) : null}
@@ -247,7 +254,7 @@ export function WorkspaceDashboard() {
             return (
               <article
                 key={workspace.id}
-                className="flex min-h-40 flex-col justify-between rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                className="flex min-h-40 flex-col justify-between rounded-lg border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-stone-800 dark:bg-stone-900 dark:shadow-none"
               >
                 <div>
                   {isEditing ? (
@@ -269,7 +276,7 @@ export function WorkspaceDashboard() {
                           setEditingId(null);
                         }
                       }}
-                      className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm font-semibold outline-none focus:border-slate-950"
+                      className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm font-semibold outline-none focus:border-slate-950 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100 dark:focus:border-amber-400"
                     />
                   ) : (
                     <button
@@ -281,7 +288,7 @@ export function WorkspaceDashboard() {
                     </button>
                   )}
 
-                  <p className="mt-3 text-sm text-slate-500">
+                  <p className="mt-3 text-sm text-slate-500 dark:text-stone-400">
                     Last edited: {formatRelativeTime(workspace.updatedAt)}
                   </p>
                 </div>
@@ -290,7 +297,7 @@ export function WorkspaceDashboard() {
                   <Button
                     variant="outline"
                     onClick={() => handleOpenWorkspace(workspace.id)}
-                    className="rounded-md"
+                    className="rounded-md dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
                   >
                     Open Workspace
                   </Button>
@@ -303,7 +310,7 @@ export function WorkspaceDashboard() {
                         setEditingId(workspace.id);
                         setEditingName(workspace.name);
                       }}
-                      className="rounded-md text-slate-500"
+                      className="rounded-md text-slate-500 dark:text-stone-400"
                     >
                       <Pencil />
                     </Button>
@@ -311,7 +318,7 @@ export function WorkspaceDashboard() {
                       size="icon"
                       variant="ghost"
                       onClick={() => void handleDeleteWorkspace(workspace.id)}
-                      className="rounded-md text-slate-500"
+                      className="rounded-md text-slate-500 dark:text-stone-400"
                     >
                       <Trash2 />
                     </Button>

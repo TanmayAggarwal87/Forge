@@ -122,6 +122,117 @@ describe('PostgresStatePersisterService', () => {
       { chunk: 1 },
     );
   });
+
+  it('skips workflows when their resolved workspace was not persisted', async () => {
+    const userId = randomUUID();
+    const workspaceId = randomUUID();
+    const workflowId = randomUUID();
+    const workflowVersionId = randomUUID();
+    const now = new Date().toISOString();
+    const state = new ForgeMemoryState();
+    const workflowRepository = createRepositoryHarness<object>();
+    const repositories = Array.from({ length: 10 }, () =>
+      createRepositoryHarness<object>(),
+    );
+    const service = new PostgresStatePersisterService(
+      state,
+      repositories[0].repository,
+      repositories[1].repository,
+      repositories[2].repository,
+      repositories[3].repository,
+      workflowRepository.repository,
+      repositories[4].repository,
+      repositories[5].repository,
+      repositories[6].repository,
+      repositories[7].repository,
+      repositories[8].repository,
+      repositories[9].repository,
+    );
+
+    state.workspaces.set(workspaceId, {
+      id: workspaceId,
+      name: 'Orphaned Workspace',
+      slug: 'orphaned-workspace',
+      createdByUserId: userId,
+      createdAt: now,
+    });
+    state.workflows.set(workflowId, {
+      id: workflowId,
+      projectId: workspaceId,
+      name: 'Orphaned workflow',
+      slug: 'orphaned-workflow',
+      description: null,
+      status: 'draft',
+      draftVersionId: workflowVersionId,
+      publishedVersionId: null,
+      createdByUserId: userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await callPersistDatabase(service, createDatabaseShape(state));
+
+    expect(workflowRepository.save).toHaveBeenCalledWith([], { chunk: 1 });
+  });
+
+  it('nulls audit workspace and workflow references that were not persisted', async () => {
+    const userId = randomUUID();
+    const missingWorkspaceId = randomUUID();
+    const missingWorkflowId = randomUUID();
+    const auditLogId = randomUUID();
+    const now = new Date().toISOString();
+    const state = new ForgeMemoryState();
+    const auditLogRepository = createRepositoryHarness<object>();
+    const repositories = Array.from({ length: 10 }, () =>
+      createRepositoryHarness<object>(),
+    );
+    const service = new PostgresStatePersisterService(
+      state,
+      repositories[0].repository,
+      repositories[1].repository,
+      repositories[2].repository,
+      repositories[3].repository,
+      repositories[4].repository,
+      repositories[5].repository,
+      repositories[6].repository,
+      repositories[7].repository,
+      repositories[8].repository,
+      repositories[9].repository,
+      auditLogRepository.repository,
+    );
+
+    state.users.set(userId, {
+      id: userId,
+      email: 'auditor@example.com',
+      name: 'Auditor',
+      passwordHash: 'hash',
+      passwordSalt: 'salt',
+      createdAt: now,
+    });
+    state.auditLogs.push({
+      id: auditLogId,
+      actorUserId: userId,
+      workspaceId: missingWorkspaceId,
+      action: 'workflow.created',
+      targetType: 'workflow',
+      targetId: missingWorkflowId,
+      metadata: {},
+      createdAt: now,
+    });
+
+    await callPersistDatabase(service, createDatabaseShape(state));
+
+    expect(auditLogRepository.save).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          id: auditLogId,
+          workspaceId: null,
+          workflowId: null,
+        }),
+      ],
+      { chunk: 1 },
+    );
+  });
 });
 
 async function callPersistDatabase(

@@ -13,6 +13,7 @@ import {
   Undo2,
   UserCircle2,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/common/themeToggle";
 import { Button } from "@/components/ui/button";
 import { ArtifactDrawer } from "@/features/workflow/components/artifactDrawer";
 import { NodeConfigPanel } from "@/features/workflow/components/nodeConfigPanel";
@@ -29,7 +30,7 @@ import {
 } from "@/features/workflow/backendWorkflowApi";
 import { getErrorMessage } from "@/lib/apiClient";
 import { signOutSession } from "@/lib/authSession";
-import { getStoredSessionToken } from "@/lib/sessionStorage";
+import { useIsClient, useStoredSessionToken } from "@/lib/sessionStorage";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -45,7 +46,8 @@ type WorkspaceEditorProps = {
 export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   const router = useRouter();
   const [artifactDrawerOpen, setArtifactDrawerOpen] = useState(false);
-  const [token] = useState<string | null>(() => getStoredSessionToken());
+  const token = useStoredSessionToken();
+  const hasLoadedToken = useIsClient();
   const [backendWorkflowId, setBackendWorkflowId] = useState<string | null>(null);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
@@ -79,10 +81,14 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   }, [ensureWorkflow, setSelectedWorkspaceId, workspaceId]);
 
   useEffect(() => {
+    if (!hasLoadedToken) {
+      return;
+    }
+
     if (!token) {
       router.replace("/login");
     }
-  }, [router, token]);
+  }, [hasLoadedToken, router, token]);
 
   useEffect(() => {
     if (!token || !workspace) {
@@ -266,10 +272,18 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
     router.replace("/login");
   }
 
+  if (!hasLoadedToken) {
+    return (
+      <main className="grid h-screen place-items-center bg-[#f6f7f8] text-sm text-slate-600 dark:bg-stone-950 dark:text-stone-300">
+        Checking session...
+      </main>
+    );
+  }
+
   if (!token) {
     return (
-      <main className="grid h-screen place-items-center bg-[#f6f7f8] text-sm text-slate-600">
-        Redirecting to login...
+      <main className="grid h-screen place-items-center bg-[#f6f7f8] text-sm text-slate-600 dark:bg-stone-950 dark:text-stone-300">
+        Opening login...
       </main>
     );
   }
@@ -279,29 +293,30 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   }
 
   return (
-    <main className="flex h-screen min-h-screen flex-col overflow-hidden bg-[#f6f7f8] text-slate-950">
-      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4">
+    <main className="forge-themed-shell flex h-screen min-h-screen flex-col overflow-hidden bg-[#f6f7f8] text-slate-950 dark:bg-stone-950 dark:text-stone-50">
+      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-stone-800 dark:bg-stone-900">
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard"
-            className="inline-flex size-9 items-center justify-center rounded-md border border-slate-200 text-slate-600"
+            className="inline-flex size-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 dark:border-stone-700 dark:text-stone-300"
           >
             <ChevronLeft className="size-4" />
           </Link>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-amber-300">
               Workspace
             </p>
-            <h1 className="text-sm font-semibold text-slate-900">{workspace.name}</h1>
+            <h1 className="text-sm font-semibold text-slate-900 dark:text-stone-50">{workspace.name}</h1>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => undo(workspaceId)} className="rounded-md">
+          <ThemeToggle />
+          <Button variant="outline" onClick={() => undo(workspaceId)} className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
             <Undo2 />
             Undo
           </Button>
-          <Button variant="outline" onClick={() => redo(workspaceId)} className="rounded-md">
+          <Button variant="outline" onClick={() => redo(workspaceId)} className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
             <Redo2 />
             Redo
           </Button>
@@ -309,7 +324,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
             variant="outline"
             onClick={() => void saveCurrentWorkflow()}
             disabled={isSavingRemote}
-            className="rounded-md"
+            className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
           >
             <Save />
             {isSavingRemote ? "Saving" : "Save"}
@@ -327,12 +342,12 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
           <Button
             variant={artifactDrawerOpen ? "default" : "outline"}
             onClick={() => setArtifactDrawerOpen((open) => !open)}
-            className="rounded-md"
+            className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
           >
             <FileCode2 />
             Artifacts
           </Button>
-          <Button asChild variant="outline" className="rounded-md">
+          <Button asChild variant="outline" className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
             <Link href="/profile">
               <UserCircle2 />
               Profile
@@ -341,7 +356,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
           <Button
             variant="outline"
             onClick={() => void handleLogout()}
-            className="rounded-md"
+            className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
           >
             <LogOut />
             Logout
@@ -365,7 +380,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
         />
         <div className="min-w-0">
           {isLoadingWorkspace ? (
-            <div className="grid h-full place-items-center bg-[#fbfbfc] text-sm text-slate-500">
+            <div className="grid h-full place-items-center bg-[#fbfbfc] text-sm text-slate-500 dark:bg-stone-950 dark:text-stone-400">
               Loading workspace...
             </div>
           ) : (

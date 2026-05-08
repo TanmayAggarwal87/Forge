@@ -110,63 +110,130 @@ export class PostgresStatePersisterService {
       return;
     }
 
-    await this.userRepository!.save(
-      database.users.map((user) => ({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        passwordHash: user.passwordHash,
-        passwordSalt: user.passwordSalt,
-        createdAt: new Date(user.createdAt),
-      })),
-      { chunk: 1 },
-    );
+    const userEntities = database.users.flatMap((user) => {
+      if (!isUuid(user.id)) {
+        this.warnOnce(
+          `user-invalid-${String(user.id)}`,
+          `Skipping user ${String(user.id)} during PostgreSQL persistence because id is not a UUID.`,
+        );
+        return [];
+      }
+
+      return [
+        {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          passwordHash: user.passwordHash,
+          passwordSalt: user.passwordSalt,
+          createdAt: new Date(user.createdAt),
+        },
+      ];
+    });
+    const persistedUserIds = new Set(userEntities.map((user) => user.id));
+
+    await this.userRepository!.save(userEntities, { chunk: 1 });
     await this.sessionRepository!.save(
-      database.sessions.map((session) => ({
-        token: session.token,
-        userId: session.userId,
-        createdAt: new Date(session.createdAt),
-        expiresAt: new Date(session.expiresAt),
-      })),
+      database.sessions.flatMap((session) => {
+        if (!persistedUserIds.has(session.userId)) {
+          this.warnOnce(
+            `session-invalid-user-${session.token}`,
+            `Skipping session ${session.token} during PostgreSQL persistence because user ${session.userId} was not persisted.`,
+          );
+          return [];
+        }
+
+        return [
+          {
+            token: session.token,
+            userId: session.userId,
+            createdAt: new Date(session.createdAt),
+            expiresAt: new Date(session.expiresAt),
+          },
+        ];
+      }),
       { chunk: 1 },
     );
-    await this.workspaceRepository!.save(
-      database.workspaces.map((workspace) => ({
-        id: workspace.id,
-        userId: workspace.createdByUserId,
-        name: workspace.name,
-        slug: workspace.slug,
-        description: null,
-        status: 'active' as const,
-        createdAt: new Date(workspace.createdAt),
-        updatedAt: new Date(workspace.createdAt),
-      })),
-      { chunk: 1 },
+    const workspaceEntities = database.workspaces.flatMap((workspace) => {
+      if (
+        !isUuid(workspace.id) ||
+        !persistedUserIds.has(workspace.createdByUserId)
+      ) {
+        this.warnOnce(
+          `workspace-invalid-${workspace.id}`,
+          `Skipping workspace ${workspace.id} during PostgreSQL persistence because one or more UUID references are invalid.`,
+        );
+        return [];
+      }
+
+      return [
+        {
+          id: workspace.id,
+          userId: workspace.createdByUserId,
+          name: workspace.name,
+          slug: workspace.slug,
+          description: null,
+          status: 'active' as const,
+          createdAt: new Date(workspace.createdAt),
+          updatedAt: new Date(workspace.createdAt),
+        },
+      ];
+    });
+    const persistedWorkspaceIds = new Set(
+      workspaceEntities.map((workspace) => workspace.id),
     );
-    await this.projectRepository!.save(
-      database.projects.map((project) => ({
-        id: project.id,
-        workspaceId: project.workspaceId,
-        name: project.name,
-        slug: project.slug,
-        description: project.description,
-        createdByUserId: project.createdByUserId,
-        createdAt: new Date(project.createdAt),
-        updatedAt: new Date(project.createdAt),
-      })),
-      { chunk: 1 },
+
+    await this.workspaceRepository!.save(workspaceEntities, { chunk: 1 });
+    const projectEntities = database.projects.flatMap((project) => {
+      if (
+        !isUuid(project.id) ||
+        !persistedWorkspaceIds.has(project.workspaceId) ||
+        !persistedUserIds.has(project.createdByUserId)
+      ) {
+        this.warnOnce(
+          `project-invalid-${project.id}`,
+          `Skipping project ${project.id} during PostgreSQL persistence because one or more UUID references are invalid.`,
+        );
+        return [];
+      }
+
+      return [
+        {
+          id: project.id,
+          workspaceId: project.workspaceId,
+          name: project.name,
+          slug: project.slug,
+          description: project.description,
+          createdByUserId: project.createdByUserId,
+          createdAt: new Date(project.createdAt),
+          updatedAt: new Date(project.createdAt),
+        },
+      ];
+    });
+    const persistedProjectIds = new Set(
+      projectEntities.map((project) => project.id),
     );
+
+    await this.projectRepository!.save(projectEntities, { chunk: 1 });
 
     const workflowEntities = database.workflows.flatMap((workflow) => {
       const requestedProjectId = toNullableUuid(workflow.projectId);
       const project = requestedProjectId
         ? this.state.projects.get(requestedProjectId)
         : undefined;
-      const projectId = project?.id ?? null;
+      const projectId =
+        project && persistedProjectIds.has(project.id) ? project.id : null;
       const workspaceId =
-        project?.workspaceId ?? this.resolveFallbackWorkspaceId(workflow);
+        projectId && project
+          ? project.workspaceId
+          : this.resolveFallbackWorkspaceId(workflow, persistedWorkspaceIds);
 
-      if (!workspaceId || !isUuid(workflow.id)) {
+      if (
+        !workspaceId ||
+        !persistedWorkspaceIds.has(workspaceId) ||
+        !isUuid(workflow.id) ||
+        !persistedUserIds.has(workflow.createdByUserId)
+      ) {
         this.warnOnce(
           `workflow-invalid-${workflow.id}`,
           `Skipping workflow ${workflow.id} during PostgreSQL persistence because one or more UUID references are invalid.`,
@@ -203,22 +270,24 @@ export class PostgresStatePersisterService {
     const persistedWorkflowIds = new Set(
       workflowEntities.map((workflow) => workflow.id),
     );
-    await this.workflowVersionRepository!.save(
-      database.workflowVersions.flatMap((version) => {
+    const workflowVersionEntities = database.workflowVersions.flatMap(
+      (version) => {
         if (
+          !isUuid(version.id) ||
           !isUuid(version.workflowId) ||
-          !persistedWorkflowIds.has(version.workflowId)
+          !persistedWorkflowIds.has(version.workflowId) ||
+          !persistedUserIds.has(version.createdByUserId)
         ) {
           this.warnOnce(
             `workflow-version-invalid-${version.id}`,
-            `Skipping workflow version ${version.id} during PostgreSQL persistence because its workflow reference is invalid.`,
+            `Skipping workflow version ${version.id} during PostgreSQL persistence because one or more FK references are invalid.`,
           );
           return [];
         }
 
         const projectId = toNullableUuid(version.projectId);
         const persistedProjectId =
-          projectId && this.state.projects.has(projectId) ? projectId : null;
+          projectId && persistedProjectIds.has(projectId) ? projectId : null;
 
         return [
           {
@@ -240,75 +309,147 @@ export class PostgresStatePersisterService {
               : null,
           },
         ];
-      }),
-      { chunk: 1 },
+      },
     );
-    await this.workflowExecutionRepository!.save(
-      database.workflowExecutions.map((execution) => ({
-        id: execution.id,
-        projectId: execution.projectId,
-        workflowId: execution.workflowId,
-        workflowVersionId: execution.workflowVersionId,
-        status: execution.status,
-        triggerType: execution.triggerType,
-        traceId: execution.traceId,
-        idempotencyKey: execution.idempotencyKey,
-        input: execution.input,
-        output: execution.output,
-        error: execution.error,
-        createdAt: new Date(execution.createdAt),
-        startedAt: execution.startedAt ? new Date(execution.startedAt) : null,
-        completedAt: execution.completedAt
-          ? new Date(execution.completedAt)
-          : null,
-        updatedAt: new Date(execution.updatedAt),
-      })),
-      { chunk: 1 },
+    const persistedWorkflowVersionIds = new Set(
+      workflowVersionEntities.map((version) => version.id),
     );
+
+    await this.workflowVersionRepository!.save(workflowVersionEntities, {
+      chunk: 1,
+    });
+    const workflowExecutionEntities = database.workflowExecutions.flatMap(
+      (execution) => {
+        if (
+          !isUuid(execution.id) ||
+          !persistedProjectIds.has(execution.projectId) ||
+          !persistedWorkflowIds.has(execution.workflowId) ||
+          !persistedWorkflowVersionIds.has(execution.workflowVersionId)
+        ) {
+          this.warnOnce(
+            `workflow-execution-invalid-${execution.id}`,
+            `Skipping workflow execution ${execution.id} during PostgreSQL persistence because one or more FK references are invalid.`,
+          );
+          return [];
+        }
+
+        return [
+          {
+            id: execution.id,
+            projectId: execution.projectId,
+            workflowId: execution.workflowId,
+            workflowVersionId: execution.workflowVersionId,
+            status: execution.status,
+            triggerType: execution.triggerType,
+            traceId: execution.traceId,
+            idempotencyKey: execution.idempotencyKey,
+            input: execution.input,
+            output: execution.output,
+            error: execution.error,
+            createdAt: new Date(execution.createdAt),
+            startedAt: execution.startedAt
+              ? new Date(execution.startedAt)
+              : null,
+            completedAt: execution.completedAt
+              ? new Date(execution.completedAt)
+              : null,
+            updatedAt: new Date(execution.updatedAt),
+          },
+        ];
+      },
+    );
+    const persistedWorkflowExecutionIds = new Set(
+      workflowExecutionEntities.map((execution) => execution.id),
+    );
+
+    await this.workflowExecutionRepository!.save(workflowExecutionEntities, {
+      chunk: 1,
+    });
+    const workflowExecutionStepEntities =
+      database.workflowExecutionSteps.flatMap((step) => {
+        if (
+          !persistedWorkflowExecutionIds.has(step.executionId) ||
+          !persistedWorkflowVersionIds.has(step.workflowVersionId)
+        ) {
+          this.warnOnce(
+            `workflow-execution-step-invalid-${step.id}`,
+            `Skipping workflow execution step ${step.id} during PostgreSQL persistence because one or more FK references are invalid.`,
+          );
+          return [];
+        }
+
+        return [
+          {
+            id: step.id,
+            executionId: step.executionId,
+            workflowVersionId: step.workflowVersionId,
+            nodeId: step.nodeId,
+            nodeType: step.nodeType,
+            label: step.label,
+            status: step.status,
+            attempt: step.attempt,
+            maxAttempts: step.maxAttempts,
+            input: step.input,
+            output: step.output,
+            error: step.error,
+            startedAt: step.startedAt ? new Date(step.startedAt) : null,
+            completedAt: step.completedAt ? new Date(step.completedAt) : null,
+            durationMs: step.durationMs,
+            updatedAt: new Date(step.updatedAt),
+          },
+        ];
+      });
+    const persistedWorkflowExecutionStepIds = new Set(
+      workflowExecutionStepEntities.map((step) => step.id),
+    );
+
     await this.workflowExecutionStepRepository!.save(
-      database.workflowExecutionSteps.map((step) => ({
-        id: step.id,
-        executionId: step.executionId,
-        workflowVersionId: step.workflowVersionId,
-        nodeId: step.nodeId,
-        nodeType: step.nodeType,
-        label: step.label,
-        status: step.status,
-        attempt: step.attempt,
-        maxAttempts: step.maxAttempts,
-        input: step.input,
-        output: step.output,
-        error: step.error,
-        startedAt: step.startedAt ? new Date(step.startedAt) : null,
-        completedAt: step.completedAt ? new Date(step.completedAt) : null,
-        durationMs: step.durationMs,
-        updatedAt: new Date(step.updatedAt),
-      })),
+      workflowExecutionStepEntities,
       { chunk: 1 },
     );
     await this.workflowExecutionLogRepository!.save(
-      database.workflowExecutionLogs.map((log) => ({
-        id: log.id,
-        executionId: log.executionId,
-        stepId: log.stepId,
-        traceId: log.traceId,
-        level: log.level,
-        message: log.message,
-        metadata: log.metadata,
-        createdAt: new Date(log.createdAt),
-      })),
+      database.workflowExecutionLogs.flatMap((log) => {
+        if (!persistedWorkflowExecutionIds.has(log.executionId)) {
+          this.warnOnce(
+            `workflow-execution-log-invalid-${log.id}`,
+            `Skipping workflow execution log ${log.id} during PostgreSQL persistence because execution ${log.executionId} was not persisted.`,
+          );
+          return [];
+        }
+
+        return [
+          {
+            id: log.id,
+            executionId: log.executionId,
+            stepId:
+              log.stepId && persistedWorkflowExecutionStepIds.has(log.stepId)
+                ? log.stepId
+                : null,
+            traceId: log.traceId,
+            level: log.level,
+            message: log.message,
+            metadata: log.metadata,
+            createdAt: new Date(log.createdAt),
+          },
+        ];
+      }),
       { chunk: 1 },
     );
     await this.generatedArtifactRepository!.save(
       database.generatedArtifacts.flatMap((artifact) => {
-        const projectId = this.resolveGeneratedArtifactProjectId(artifact);
+        const projectId = this.resolveGeneratedArtifactProjectId(
+          artifact,
+          persistedProjectIds,
+        );
 
         if (
           !projectId ||
           !isUuid(artifact.workflowId) ||
-          !isUuid(artifact.workflowVersionId)
+          !persistedWorkflowIds.has(artifact.workflowId) ||
+          !persistedWorkflowVersionIds.has(artifact.workflowVersionId)
         ) {
-          this.logger.warn(
+          this.warnOnce(
+            `generated-artifact-invalid-${artifact.id}`,
             `Skipping generated artifact ${artifact.id} during PostgreSQL persistence because one or more UUID references are invalid.`,
           );
           return [];
@@ -332,41 +473,79 @@ export class PostgresStatePersisterService {
       { chunk: 1 },
     );
     await this.auditLogRepository!.save(
-      database.auditLogs.map((log) => ({
-        id: log.id,
-        userId: log.actorUserId,
-        workspaceId: log.workspaceId,
-        workflowId: log.targetType === 'workflow' ? log.targetId : null,
-        action: log.action,
-        targetType: log.targetType,
-        targetId: log.targetId,
-        metadataJson: log.metadata,
-        createdAt: new Date(log.createdAt),
-      })),
+      database.auditLogs.flatMap((log) => {
+        if (!isUuid(log.id) || !persistedUserIds.has(log.actorUserId)) {
+          this.warnOnce(
+            `audit-log-invalid-${log.id}`,
+            `Skipping audit log ${log.id} during PostgreSQL persistence because one or more FK references are invalid.`,
+          );
+          return [];
+        }
+
+        const workspaceId =
+          log.workspaceId && persistedWorkspaceIds.has(log.workspaceId)
+            ? log.workspaceId
+            : null;
+        const workflowId =
+          log.targetType === 'workflow' &&
+          persistedWorkflowIds.has(log.targetId)
+            ? log.targetId
+            : null;
+
+        if (log.workspaceId && !workspaceId) {
+          this.warnOnce(
+            `audit-log-missing-workspace-${log.id}`,
+            `Persisting audit log ${log.id} without workspace_id because workspace ${log.workspaceId} was not persisted.`,
+          );
+        }
+
+        return [
+          {
+            id: log.id,
+            userId: log.actorUserId,
+            workspaceId,
+            workflowId,
+            action: log.action,
+            targetType: log.targetType,
+            targetId: log.targetId,
+            metadataJson: log.metadata,
+            createdAt: new Date(log.createdAt),
+          },
+        ];
+      }),
       { chunk: 1 },
     );
   }
 
-  private resolveFallbackWorkspaceId(workflow: Workflow): string | null {
+  private resolveFallbackWorkspaceId(
+    workflow: Workflow,
+    persistedWorkspaceIds: Set<string>,
+  ): string | null {
     if (
       isUuid(workflow.projectId) &&
-      this.state.workspaces.has(workflow.projectId)
+      persistedWorkspaceIds.has(workflow.projectId)
     ) {
       return workflow.projectId;
     }
 
     const ownerMembership = this.state.members.find(
-      (member) => member.userId === workflow.createdByUserId,
+      (member) =>
+        member.userId === workflow.createdByUserId &&
+        persistedWorkspaceIds.has(member.workspaceId),
     );
-    const firstWorkspaceId = Array.from(this.state.workspaces.keys())[0];
+    const firstWorkspaceId = Array.from(persistedWorkspaceIds)[0];
 
     return ownerMembership?.workspaceId ?? firstWorkspaceId ?? null;
   }
 
   private resolveGeneratedArtifactProjectId(
     artifact: GeneratedArtifact,
+    persistedProjectIds: Set<string>,
   ): string | null {
-    if (isUuid(artifact.projectId)) {
+    if (
+      isUuid(artifact.projectId) &&
+      persistedProjectIds.has(artifact.projectId)
+    ) {
       return artifact.projectId;
     }
 
@@ -377,7 +556,7 @@ export class PostgresStatePersisterService {
 
     const projectId = toNullableUuid(workflow.projectId);
 
-    return projectId && this.state.projects.has(projectId) ? projectId : null;
+    return projectId && persistedProjectIds.has(projectId) ? projectId : null;
   }
 
   private warnOnce(key: string, message: string): void {

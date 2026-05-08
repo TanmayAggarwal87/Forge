@@ -304,7 +304,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
   return (
     <div
       ref={containerRef}
-      className="relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-[#fbfbfc]"
+      className="relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-[#fbfbfc] dark:bg-stone-950"
       onDragOver={(event) => event.preventDefault()}
       onWheel={(e) => e.stopPropagation()}
       onDrop={handleDropNode}
@@ -349,17 +349,17 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
         }}
         className="workflow-canvas h-full w-full"
       >
-        <Background gap={24} size={1} color="#e2e8f0" />
+        <Background gap={24} size={1} color="currentColor" className="text-slate-200 dark:text-stone-800" />
         <MiniMap
           pannable
           zoomable
-          className="!bottom-4 !left-4 !border !border-slate-200 !bg-white"
+          className="!bottom-4 !left-4 !border !border-slate-200 !bg-white dark:!border-stone-700 dark:!bg-stone-900"
           nodeColor="#0f172a"
           maskColor="rgba(148, 163, 184, 0.08)"
         />
-        <Controls position="top-right" showInteractive={false} className="!rounded-md !border !border-slate-200 !bg-white" />
+        <Controls position="top-right" showInteractive={false} className="!rounded-md !border !border-slate-200 !bg-white dark:!border-stone-700 dark:!bg-stone-900" />
         <Panel position="top-left">
-          <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-sm">
+          <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-sm dark:border-stone-800 dark:bg-stone-900 dark:text-stone-300">
             {selectedNodeCount > 0
               ? `${selectedNodeCount} node${selectedNodeCount === 1 ? "" : "s"} selected`
               : "Drop a node here to start the workflow"}
@@ -367,7 +367,7 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
         </Panel>
         {connectionFeedback ? (
           <Panel position="bottom-center">
-            <div className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 shadow-sm">
+            <div className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/50 dark:text-red-200">
               {connectionFeedback}
             </div>
           </Panel>
@@ -382,9 +382,9 @@ function WorkflowCanvasInner({ workspaceId, workflow }: WorkflowCanvasProps) {
 
       {nodes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <div className="rounded-lg border border-dashed border-slate-300 bg-white/90 px-6 py-5 text-center shadow-sm">
-            <p className="text-sm font-medium text-slate-900">Blank canvas</p>
-            <p className="mt-2 text-xs text-slate-500">
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white/90 px-6 py-5 text-center shadow-sm dark:border-stone-700 dark:bg-stone-900/90">
+            <p className="text-sm font-medium text-slate-900 dark:text-stone-50">Blank canvas</p>
+            <p className="mt-2 text-xs text-slate-500 dark:text-stone-400">
               Drag a node from the library to begin building the workflow.
             </p>
           </div>

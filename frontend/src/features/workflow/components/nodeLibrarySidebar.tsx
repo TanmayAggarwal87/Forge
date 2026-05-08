@@ -155,37 +155,37 @@ export function NodeLibrarySidebar({
   }
 
   return (
-    <aside className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200 bg-white text-slate-950">
-      <div className="shrink-0 border-b border-slate-200 p-4">
+    <aside className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200 bg-white text-slate-950 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-50">
+      <div className="shrink-0 border-b border-slate-200 p-4 dark:border-stone-800">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-amber-300">
               Forge
             </p>
-            <h2 className="mt-1 text-sm font-semibold text-slate-950">
+            <h2 className="mt-1 text-sm font-semibold text-slate-950 dark:text-stone-50">
               Node Library
             </h2>
           </div>
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-400">
             Drag
           </div>
         </div>
 
         <div className="relative mt-4">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400 dark:text-stone-500" />
           <input
             value={nodeSearch}
             onChange={(event) => setNodeSearch(event.target.value)}
             placeholder="Search nodes..."
-            className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-slate-950"
+            className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-slate-950 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-amber-400"
           />
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
-        <section className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            <Workflow className="size-3.5 text-slate-700" />
+        <section className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-stone-800 dark:bg-stone-950/60">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-stone-400">
+            <Workflow className="size-3.5 text-slate-700 dark:text-amber-300" />
             Quick Start
           </div>
           <div className="mt-3 grid gap-2">

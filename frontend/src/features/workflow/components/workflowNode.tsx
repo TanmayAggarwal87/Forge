@@ -18,21 +18,21 @@ export const WorkflowNode = memo(function WorkflowNode({
 
   return (
     <div
-      className={`min-w-56 rounded-lg border bg-white shadow-sm transition ${connectionStyles.container}`}
+      className={`min-w-56 rounded-lg border bg-white shadow-sm transition dark:bg-stone-900 dark:shadow-black/20 ${connectionStyles.container}`}
     >
-      <Handle type="target" position={Position.Left} className={`!h-3 !w-3 !border-2 !border-white ${connectionStyles.targetHandle}`} />
-      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+      <Handle type="target" position={Position.Left} className={`!h-3 !w-3 !border-2 !border-white dark:!border-stone-900 ${connectionStyles.targetHandle}`} />
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-stone-800">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-amber-300">
             {definition.category}
           </p>
-          <h3 className="mt-1 truncate text-sm font-semibold text-slate-900">
+          <h3 className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-stone-50">
             {data.label}
           </h3>
         </div>
         <button
           type="button"
-          className="nodrag nopan rounded-md border border-slate-200 bg-white p-1.5 text-slate-500 transition hover:border-slate-950 hover:text-slate-950"
+          className="nodrag nopan rounded-md border border-slate-200 bg-white p-1.5 text-slate-500 transition hover:border-slate-950 hover:text-slate-950 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-300 dark:hover:border-amber-400 dark:hover:text-amber-300"
           title="Edit node settings"
           onClick={(event) => {
             event.stopPropagation();
@@ -43,9 +43,9 @@ export const WorkflowNode = memo(function WorkflowNode({
         </button>
       </div>
       <div className="px-4 py-3">
-        <p className="text-xs leading-5 text-slate-600">{definition.description}</p>
+        <p className="text-xs leading-5 text-slate-600 dark:text-stone-300">{definition.description}</p>
       </div>
-      <Handle type="source" position={Position.Right} className={`!h-3 !w-3 !border-2 !border-white ${connectionStyles.sourceHandle}`} />
+      <Handle type="source" position={Position.Right} className={`!h-3 !w-3 !border-2 !border-white dark:!border-stone-900 ${connectionStyles.sourceHandle}`} />
     </div>
   );
 });

@@ -134,13 +134,63 @@
 }
 
 @layer components {
+  .dark .forge-themed-shell [class*="bg-white"],
+  .dark .forge-themed-shell [class*="bg-slate-50"],
+  .dark .forge-themed-shell [class*="bg-slate-100"],
+  .dark .forge-themed-shell [class*="bg-[#fbfbfc]"] {
+    background-color: rgb(28 25 23);
+  }
+
+  .dark .forge-themed-shell [class*="border-slate-"],
+  .dark .forge-themed-shell [class*="border-dashed"] {
+    border-color: rgb(41 37 36);
+  }
+
+  .dark .forge-themed-shell [class*="text-slate-9"],
+  .dark .forge-themed-shell [class*="text-slate-8"] {
+    color: rgb(250 250 249);
+  }
+
+  .dark .forge-themed-shell [class*="text-slate-7"],
+  .dark .forge-themed-shell [class*="text-slate-6"],
+  .dark .forge-themed-shell [class*="text-slate-5"] {
+    color: rgb(214 211 209);
+  }
+
+  .dark .forge-themed-shell input,
+  .dark .forge-themed-shell textarea,
+  .dark .forge-themed-shell select {
+    background-color: rgb(12 10 9);
+    border-color: rgb(68 64 60);
+    color: rgb(245 245 244);
+  }
+
+  .dark .forge-themed-shell input::placeholder,
+  .dark .forge-themed-shell textarea::placeholder {
+    color: rgb(120 113 108);
+  }
+
   .workflow-canvas .react-flow__attribution {
     display: none;
+  }
+
+  .dark .workflow-canvas {
+    background-color: rgb(12 10 9);
+  }
+
+  .dark .workflow-canvas .react-flow__pane {
+    background-color: rgb(12 10 9);
   }
 
   .workflow-canvas .react-flow__controls-button {
     border-bottom-color: rgb(226 232 240);
     color: rgb(71 85 105);
+  }
+
+  .dark .workflow-canvas .react-flow__controls-button {
+    background-color: rgb(28 25 23);
+    border-bottom-color: rgb(68 64 60);
+    color: rgb(214 211 209);
   }
 
   .workflow-canvas .react-flow__minimap {
