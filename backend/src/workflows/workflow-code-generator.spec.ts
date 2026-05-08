@@ -109,7 +109,57 @@ describe('buildWorkflowArtifacts', () => {
     ).toContain('markPaymentSucceeded');
   });
 
-  it('generates a warning-backed generic module for known supported nodes', () => {
+  it('generates email verification backend module artifacts', () => {
+    const artifacts = buildWorkflowArtifacts(
+      createWorkflow('Email Verification Flow'),
+      createVersion([
+        createNode('create-token', 'createVerificationToken', 'Create Token'),
+        createNode('verify-token', 'verifyToken', 'Verify Token'),
+        createNode('send-email', 'sendEmail', 'Send Email'),
+      ]),
+      'backend_module',
+    );
+
+    expect(
+      artifacts.some((artifact) =>
+        artifact.name.endsWith('email-verification.service.ts'),
+      ),
+    ).toBe(true);
+    expect(
+      artifacts.find((artifact) =>
+        artifact.name.endsWith('verify-email.dto.ts'),
+      )?.content,
+    ).toContain('@MinLength(16)');
+  });
+
+  it('generates password reset backend module artifacts', () => {
+    const artifacts = buildWorkflowArtifacts(
+      createWorkflow('Password Reset Flow'),
+      createVersion([
+        createNode('reset-token', 'generateResetToken', 'Generate Reset Token'),
+        createNode(
+          'verify-reset-token',
+          'verifyResetToken',
+          'Verify Reset Token',
+        ),
+        createNode('hash-password', 'passwordHash', 'Password Hash'),
+      ]),
+      'backend_module',
+    );
+
+    expect(
+      artifacts.some((artifact) =>
+        artifact.name.endsWith('user-password.repository.ts'),
+      ),
+    ).toBe(true);
+    expect(
+      artifacts.find((artifact) =>
+        artifact.name.endsWith('password-reset.service.ts'),
+      )?.content,
+    ).toContain('scryptSync');
+  });
+
+  it('generates user onboarding backend module artifacts', () => {
     const artifacts = buildWorkflowArtifacts(
       createWorkflow('User Onboarding Flow'),
       createVersion([
@@ -122,13 +172,31 @@ describe('buildWorkflowArtifacts', () => {
 
     expect(
       artifacts.some((artifact) =>
-        artifact.name.endsWith('GENERATION_WARNINGS.md'),
+        artifact.name.endsWith('user-onboarding.service.ts'),
       ),
     ).toBe(true);
     expect(
-      artifacts.find((artifact) => artifact.name.endsWith('.service.ts'))
-        ?.content,
-    ).toContain('nodeCount: 3');
+      artifacts.some((artifact) =>
+        artifact.name.endsWith('GENERATION_WARNINGS.md'),
+      ),
+    ).toBe(false);
+  });
+
+  it('generates a warning-backed generic module for other known supported nodes', () => {
+    const artifacts = buildWorkflowArtifacts(
+      createWorkflow('Conditional Flow'),
+      createVersion([
+        createNode('trigger', 'httpTrigger', 'Trigger'),
+        createNode('condition', 'condition', 'Condition'),
+      ]),
+      'backend_module',
+    );
+
+    expect(
+      artifacts.some((artifact) =>
+        artifact.name.endsWith('GENERATION_WARNINGS.md'),
+      ),
+    ).toBe(true);
   });
 
   it('rejects unsupported nodes with a clear message', () => {

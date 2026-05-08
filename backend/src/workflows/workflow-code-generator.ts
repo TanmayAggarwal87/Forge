@@ -66,6 +66,11 @@ const SUPPORTED_BACKEND_NODE_TYPES = new Set([
   'generateOtp',
   'verifyOtp',
   'jwtSign',
+  'passwordHash',
+  'createVerificationToken',
+  'verifyToken',
+  'generateResetToken',
+  'verifyResetToken',
   'sendSms',
   'sendEmail',
   'verifySignature',
@@ -138,8 +143,20 @@ function buildBackendModuleArtifacts(
     return buildPaymentWebhookArtifacts(context);
   }
 
+  if (isPasswordResetWorkflow(context.nodes)) {
+    return buildPasswordResetArtifacts(context);
+  }
+
+  if (isEmailVerificationWorkflow(context.nodes)) {
+    return buildEmailVerificationArtifacts(context);
+  }
+
   if (isOtpAuthWorkflow(context.nodes)) {
     return buildOtpAuthArtifacts(context);
+  }
+
+  if (isUserOnboardingWorkflow(context.nodes)) {
+    return buildUserOnboardingArtifacts(context);
   }
 
   return buildGenericWorkflowArtifacts(context, [
@@ -331,6 +348,140 @@ function buildPaymentWebhookArtifacts(
   return files.map((file) => createFileArtifact(context, file));
 }
 
+function buildEmailVerificationArtifacts(
+  context: GeneratorContext,
+): GeneratedArtifactEntity[] {
+  const files: Array<GeneratedFile> = [
+    moduleFile(
+      'email-verification',
+      buildAuthUtilityModuleSource('EmailVerification', 'email-verification'),
+    ),
+    controllerFile(
+      'email-verification',
+      buildEmailVerificationControllerSource(),
+    ),
+    serviceFile('email-verification', buildEmailVerificationServiceSource()),
+    {
+      path: 'generated/email-verification/dto/create-verification.dto.ts',
+      contentType: 'text/typescript',
+      content: buildEmailDtoSource('CreateVerificationDto', 'email'),
+    },
+    {
+      path: 'generated/email-verification/dto/verify-email.dto.ts',
+      contentType: 'text/typescript',
+      content: buildTokenDtoSource('VerifyEmailDto', 'email', 'token'),
+    },
+    tokenStoreFile('email-verification', 'token-store.provider.ts'),
+    emailProviderFile('email-verification'),
+    userRepositoryFile('email-verification'),
+    {
+      path: 'generated/email-verification/types/email-verification.types.ts',
+      contentType: 'text/typescript',
+      content: buildEmailVerificationTypesSource(),
+    },
+    readmeFile(
+      'email-verification',
+      buildLifecycleReadme(
+        context,
+        'Email Verification Module',
+        'creates verification tokens, sends verification emails, and marks users as verified.',
+      ),
+    ),
+    envFile('email-verification', [
+      'EMAIL_PROVIDER_URL=https://example.com/send-email',
+      'EMAIL_PROVIDER_API_KEY=replace_with_email_api_key',
+      'EMAIL_FROM=no-reply@example.com',
+      'TOKEN_HASH_SECRET=replace_with_token_hash_secret',
+      'USER_API_URL=https://example.com/users',
+    ]),
+  ];
+
+  return files.map((file) => createFileArtifact(context, file));
+}
+
+function buildPasswordResetArtifacts(
+  context: GeneratorContext,
+): GeneratedArtifactEntity[] {
+  const files: Array<GeneratedFile> = [
+    moduleFile('password-reset', buildPasswordResetModuleSource()),
+    controllerFile('password-reset', buildPasswordResetControllerSource()),
+    serviceFile('password-reset', buildPasswordResetServiceSource()),
+    {
+      path: 'generated/password-reset/dto/request-password-reset.dto.ts',
+      contentType: 'text/typescript',
+      content: buildEmailDtoSource('RequestPasswordResetDto', 'email'),
+    },
+    {
+      path: 'generated/password-reset/dto/confirm-password-reset.dto.ts',
+      contentType: 'text/typescript',
+      content: buildPasswordResetConfirmDtoSource(),
+    },
+    tokenStoreFile('password-reset', 'token-store.provider.ts'),
+    emailProviderFile('password-reset'),
+    userPasswordRepositoryFile('password-reset'),
+    {
+      path: 'generated/password-reset/types/password-reset.types.ts',
+      contentType: 'text/typescript',
+      content: buildPasswordResetTypesSource(),
+    },
+    readmeFile(
+      'password-reset',
+      buildLifecycleReadme(
+        context,
+        'Password Reset Module',
+        'creates reset tokens, sends reset emails, verifies submitted tokens, and updates user passwords through a repository boundary.',
+      ),
+    ),
+    envFile('password-reset', [
+      'EMAIL_PROVIDER_URL=https://example.com/send-email',
+      'EMAIL_PROVIDER_API_KEY=replace_with_email_api_key',
+      'EMAIL_FROM=no-reply@example.com',
+      'TOKEN_HASH_SECRET=replace_with_token_hash_secret',
+      'USER_PASSWORD_API_URL=https://example.com/users/password',
+    ]),
+  ];
+
+  return files.map((file) => createFileArtifact(context, file));
+}
+
+function buildUserOnboardingArtifacts(
+  context: GeneratorContext,
+): GeneratedArtifactEntity[] {
+  const files: Array<GeneratedFile> = [
+    moduleFile('user-onboarding', buildOnboardingModuleSource()),
+    controllerFile('user-onboarding', buildOnboardingControllerSource()),
+    serviceFile('user-onboarding', buildOnboardingServiceSource()),
+    {
+      path: 'generated/user-onboarding/dto/create-user.dto.ts',
+      contentType: 'text/typescript',
+      content: buildCreateUserDtoSource(),
+    },
+    emailProviderFile('user-onboarding'),
+    userRepositoryFile('user-onboarding'),
+    {
+      path: 'generated/user-onboarding/types/user-onboarding.types.ts',
+      contentType: 'text/typescript',
+      content: buildUserOnboardingTypesSource(),
+    },
+    readmeFile(
+      'user-onboarding',
+      buildLifecycleReadme(
+        context,
+        'User Onboarding Module',
+        'creates users, sends onboarding email, and exposes repository/provider boundaries for production integrations.',
+      ),
+    ),
+    envFile('user-onboarding', [
+      'EMAIL_PROVIDER_URL=https://example.com/send-email',
+      'EMAIL_PROVIDER_API_KEY=replace_with_email_api_key',
+      'EMAIL_FROM=no-reply@example.com',
+      'USER_API_URL=https://example.com/users',
+    ]),
+  ];
+
+  return files.map((file) => createFileArtifact(context, file));
+}
+
 function buildGenericWorkflowArtifacts(
   context: GeneratorContext,
   warnings: GenerationWarning[],
@@ -388,6 +539,78 @@ function buildGenericWorkflowArtifacts(
   return files.map((file) => createFileArtifact(context, file));
 }
 
+function moduleFile(slug: string, content: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/${slug}.module.ts`,
+    contentType: 'text/typescript',
+    content,
+  };
+}
+
+function controllerFile(slug: string, content: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/${slug}.controller.ts`,
+    contentType: 'text/typescript',
+    content,
+  };
+}
+
+function serviceFile(slug: string, content: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/${slug}.service.ts`,
+    contentType: 'text/typescript',
+    content,
+  };
+}
+
+function readmeFile(slug: string, content: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/README.md`,
+    contentType: 'text/markdown',
+    content,
+  };
+}
+
+function envFile(slug: string, lines: string[]): GeneratedFile {
+  return {
+    path: `generated/${slug}/.env.example`,
+    contentType: 'text/plain',
+    content: [...lines, ''].join('\n'),
+  };
+}
+
+function emailProviderFile(slug: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/providers/email.provider.ts`,
+    contentType: 'text/typescript',
+    content: buildGenericEmailProviderSource(),
+  };
+}
+
+function userRepositoryFile(slug: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/providers/user.repository.ts`,
+    contentType: 'text/typescript',
+    content: buildUserRepositorySource(),
+  };
+}
+
+function userPasswordRepositoryFile(slug: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/providers/user-password.repository.ts`,
+    contentType: 'text/typescript',
+    content: buildUserPasswordRepositorySource(),
+  };
+}
+
+function tokenStoreFile(slug: string, fileName: string): GeneratedFile {
+  return {
+    path: `generated/${slug}/providers/${fileName}`,
+    contentType: 'text/typescript',
+    content: buildTokenStoreProviderSource(),
+  };
+}
+
 function buildGenericWorkflowModuleSource(
   moduleName: string,
   filePrefix: string,
@@ -403,6 +626,230 @@ function buildGenericWorkflowModuleSource(
     `  exports: [${moduleName}Service],`,
     '})',
     `export class ${moduleName}Module {}`,
+  ].join('\n');
+}
+
+function buildAuthUtilityModuleSource(
+  moduleName: string,
+  slug: string,
+): string {
+  return [
+    "import { Module } from '@nestjs/common';",
+    `import { ${moduleName}Controller } from './${slug}.controller';`,
+    `import { ${moduleName}Service } from './${slug}.service';`,
+    "import { EmailProvider } from './providers/email.provider';",
+    "import { TokenStoreProvider } from './providers/token-store.provider';",
+    "import { UserRepository } from './providers/user.repository';",
+    '',
+    '@Module({',
+    `  controllers: [${moduleName}Controller],`,
+    `  providers: [${moduleName}Service, TokenStoreProvider, UserRepository, EmailProvider],`,
+    `  exports: [${moduleName}Service],`,
+    '})',
+    `export class ${moduleName}Module {}`,
+  ].join('\n');
+}
+
+function buildPasswordResetModuleSource(): string {
+  return [
+    "import { Module } from '@nestjs/common';",
+    "import { PasswordResetController } from './password-reset.controller';",
+    "import { PasswordResetService } from './password-reset.service';",
+    "import { EmailProvider } from './providers/email.provider';",
+    "import { TokenStoreProvider } from './providers/token-store.provider';",
+    "import { UserPasswordRepository } from './providers/user-password.repository';",
+    '',
+    '@Module({',
+    '  controllers: [PasswordResetController],',
+    '  providers: [PasswordResetService, TokenStoreProvider, UserPasswordRepository, EmailProvider],',
+    '  exports: [PasswordResetService],',
+    '})',
+    'export class PasswordResetModule {}',
+  ].join('\n');
+}
+
+function buildEmailVerificationControllerSource(): string {
+  return [
+    "import { Body, Controller, Post } from '@nestjs/common';",
+    "import { CreateVerificationDto } from './dto/create-verification.dto';",
+    "import { VerifyEmailDto } from './dto/verify-email.dto';",
+    "import { EmailVerificationService } from './email-verification.service';",
+    '',
+    "@Controller('auth/email')",
+    'export class EmailVerificationController {',
+    '  constructor(private readonly service: EmailVerificationService) {}',
+    '',
+    "  @Post('verification')",
+    '  createVerification(@Body() dto: CreateVerificationDto) {',
+    '    return this.service.createVerification(dto);',
+    '  }',
+    '',
+    "  @Post('verify')",
+    '  verifyEmail(@Body() dto: VerifyEmailDto) {',
+    '    return this.service.verifyEmail(dto);',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildEmailVerificationServiceSource(): string {
+  return [
+    "import { Injectable, UnauthorizedException } from '@nestjs/common';",
+    "import { randomBytes } from 'crypto';",
+    "import { CreateVerificationDto } from './dto/create-verification.dto';",
+    "import { VerifyEmailDto } from './dto/verify-email.dto';",
+    "import { EmailProvider } from './providers/email.provider';",
+    "import { TokenStoreProvider } from './providers/token-store.provider';",
+    "import { UserRepository } from './providers/user.repository';",
+    "import type { CreateVerificationResult, VerifyEmailResult } from './types/email-verification.types';",
+    '',
+    '@Injectable()',
+    'export class EmailVerificationService {',
+    '  constructor(',
+    '    private readonly tokenStore: TokenStoreProvider,',
+    '    private readonly users: UserRepository,',
+    '    private readonly emailProvider: EmailProvider,',
+    '  ) {}',
+    '',
+    '  async createVerification(dto: CreateVerificationDto): Promise<CreateVerificationResult> {',
+    '    const token = randomBytes(24).toString("hex");',
+    '    await this.tokenStore.saveToken(dto.email, token, 3600);',
+    '    await this.emailProvider.sendEmail(dto.email, "Verify your email", `Use this verification token: ${token}`);',
+    '    return { ok: true };',
+    '  }',
+    '',
+    '  async verifyEmail(dto: VerifyEmailDto): Promise<VerifyEmailResult> {',
+    '    const verified = await this.tokenStore.verifyToken(dto.email, dto.token);',
+    '    if (!verified) {',
+    '      throw new UnauthorizedException("Invalid or expired verification token.");',
+    '    }',
+    '    await this.users.markEmailVerified(dto.email);',
+    '    return { ok: true, verified: true };',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildPasswordResetControllerSource(): string {
+  return [
+    "import { Body, Controller, Post } from '@nestjs/common';",
+    "import { ConfirmPasswordResetDto } from './dto/confirm-password-reset.dto';",
+    "import { RequestPasswordResetDto } from './dto/request-password-reset.dto';",
+    "import { PasswordResetService } from './password-reset.service';",
+    '',
+    "@Controller('auth/password-reset')",
+    'export class PasswordResetController {',
+    '  constructor(private readonly service: PasswordResetService) {}',
+    '',
+    "  @Post('request')",
+    '  requestReset(@Body() dto: RequestPasswordResetDto) {',
+    '    return this.service.requestReset(dto);',
+    '  }',
+    '',
+    "  @Post('confirm')",
+    '  confirmReset(@Body() dto: ConfirmPasswordResetDto) {',
+    '    return this.service.confirmReset(dto);',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildPasswordResetServiceSource(): string {
+  return [
+    "import { Injectable, UnauthorizedException } from '@nestjs/common';",
+    "import { randomBytes, scryptSync } from 'crypto';",
+    "import { ConfirmPasswordResetDto } from './dto/confirm-password-reset.dto';",
+    "import { RequestPasswordResetDto } from './dto/request-password-reset.dto';",
+    "import { EmailProvider } from './providers/email.provider';",
+    "import { TokenStoreProvider } from './providers/token-store.provider';",
+    "import { UserPasswordRepository } from './providers/user-password.repository';",
+    "import type { PasswordResetResult, RequestPasswordResetResult } from './types/password-reset.types';",
+    '',
+    '@Injectable()',
+    'export class PasswordResetService {',
+    '  constructor(',
+    '    private readonly tokenStore: TokenStoreProvider,',
+    '    private readonly users: UserPasswordRepository,',
+    '    private readonly emailProvider: EmailProvider,',
+    '  ) {}',
+    '',
+    '  async requestReset(dto: RequestPasswordResetDto): Promise<RequestPasswordResetResult> {',
+    '    const token = randomBytes(24).toString("hex");',
+    '    await this.tokenStore.saveToken(dto.email, token, 1800);',
+    '    await this.emailProvider.sendEmail(dto.email, "Reset your password", `Use this reset token: ${token}`);',
+    '    return { ok: true };',
+    '  }',
+    '',
+    '  async confirmReset(dto: ConfirmPasswordResetDto): Promise<PasswordResetResult> {',
+    '    const verified = await this.tokenStore.verifyToken(dto.email, dto.resetToken);',
+    '    if (!verified) {',
+    '      throw new UnauthorizedException("Invalid or expired password reset token.");',
+    '    }',
+    '    const salt = randomBytes(16).toString("hex");',
+    '    const passwordHash = `${salt}:${scryptSync(dto.password, salt, 64).toString("hex")}`;',
+    '    await this.users.updatePasswordHash(dto.email, passwordHash);',
+    '    return { ok: true, passwordUpdated: true };',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildOnboardingModuleSource(): string {
+  return [
+    "import { Module } from '@nestjs/common';",
+    "import { UserOnboardingController } from './user-onboarding.controller';",
+    "import { UserOnboardingService } from './user-onboarding.service';",
+    "import { EmailProvider } from './providers/email.provider';",
+    "import { UserRepository } from './providers/user.repository';",
+    '',
+    '@Module({',
+    '  controllers: [UserOnboardingController],',
+    '  providers: [UserOnboardingService, UserRepository, EmailProvider],',
+    '  exports: [UserOnboardingService],',
+    '})',
+    'export class UserOnboardingModule {}',
+  ].join('\n');
+}
+
+function buildOnboardingControllerSource(): string {
+  return [
+    "import { Body, Controller, Post } from '@nestjs/common';",
+    "import { CreateUserDto } from './dto/create-user.dto';",
+    "import { UserOnboardingService } from './user-onboarding.service';",
+    '',
+    "@Controller('users')",
+    'export class UserOnboardingController {',
+    '  constructor(private readonly service: UserOnboardingService) {}',
+    '',
+    '  @Post()',
+    '  createUser(@Body() dto: CreateUserDto) {',
+    '    return this.service.createUser(dto);',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildOnboardingServiceSource(): string {
+  return [
+    "import { Injectable } from '@nestjs/common';",
+    "import { CreateUserDto } from './dto/create-user.dto';",
+    "import { EmailProvider } from './providers/email.provider';",
+    "import { UserRepository } from './providers/user.repository';",
+    "import type { UserOnboardingResult } from './types/user-onboarding.types';",
+    '',
+    '@Injectable()',
+    'export class UserOnboardingService {',
+    '  constructor(',
+    '    private readonly users: UserRepository,',
+    '    private readonly emailProvider: EmailProvider,',
+    '  ) {}',
+    '',
+    '  async createUser(dto: CreateUserDto): Promise<UserOnboardingResult> {',
+    '    const user = await this.users.createUser(dto);',
+    '    await this.emailProvider.sendEmail(dto.email, "Welcome", "Your account has been created.");',
+    '    return { ok: true, userId: user.id };',
+    '  }',
+    '}',
   ].join('\n');
 }
 
@@ -468,6 +915,224 @@ function buildGenericExecuteWorkflowDtoSource(): string {
   ].join('\n');
 }
 
+function buildEmailDtoSource(className: string, fieldName: string): string {
+  return [
+    "import { IsEmail, IsNotEmpty, IsString } from 'class-validator';",
+    '',
+    `export class ${className} {`,
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  @IsEmail()',
+    `  ${fieldName}!: string;`,
+    '}',
+  ].join('\n');
+}
+
+function buildTokenDtoSource(
+  className: string,
+  emailField: string,
+  tokenField: string,
+): string {
+  return [
+    "import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';",
+    '',
+    `export class ${className} {`,
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  @IsEmail()',
+    `  ${emailField}!: string;`,
+    '',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  @MinLength(16)',
+    `  ${tokenField}!: string;`,
+    '}',
+  ].join('\n');
+}
+
+function buildPasswordResetConfirmDtoSource(): string {
+  return [
+    "import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';",
+    '',
+    'export class ConfirmPasswordResetDto {',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  @IsEmail()',
+    '  email!: string;',
+    '',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  @MinLength(16)',
+    '  resetToken!: string;',
+    '',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  @MinLength(8)',
+    '  password!: string;',
+    '}',
+  ].join('\n');
+}
+
+function buildCreateUserDtoSource(): string {
+  return [
+    "import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';",
+    '',
+    'export class CreateUserDto {',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  name!: string;',
+    '',
+    '  @IsString()',
+    '  @IsNotEmpty()',
+    '  @IsEmail()',
+    '  email!: string;',
+    '',
+    '  @IsOptional()',
+    '  @IsString()',
+    '  phoneNumber?: string;',
+    '}',
+  ].join('\n');
+}
+
+function buildTokenStoreProviderSource(): string {
+  return [
+    "import { Injectable, ServiceUnavailableException } from '@nestjs/common';",
+    "import { createHash } from 'crypto';",
+    '',
+    'type StoredToken = { tokenHash: string; expiresAt: number };',
+    '',
+    '// Demo-only in-memory token store. Replace with Redis or a database table before production.',
+    '@Injectable()',
+    'export class TokenStoreProvider {',
+    '  private readonly records = new Map<string, StoredToken>();',
+    '',
+    '  async saveToken(subject: string, token: string, ttlSeconds: number): Promise<void> {',
+    '    this.records.set(subject, {',
+    '      tokenHash: this.hashToken(token),',
+    '      expiresAt: Date.now() + ttlSeconds * 1000,',
+    '    });',
+    '  }',
+    '',
+    '  async verifyToken(subject: string, token: string): Promise<boolean> {',
+    '    const record = this.records.get(subject);',
+    '    if (!record || record.expiresAt < Date.now()) {',
+    '      this.records.delete(subject);',
+    '      return false;',
+    '    }',
+    '    const verified = record.tokenHash === this.hashToken(token);',
+    '    if (verified) {',
+    '      this.records.delete(subject);',
+    '    }',
+    '    return verified;',
+    '  }',
+    '',
+    '  private hashToken(token: string): string {',
+    '    const secret = process.env.TOKEN_HASH_SECRET;',
+    '    if (!secret) {',
+    '      throw new ServiceUnavailableException("TOKEN_HASH_SECRET is required to hash tokens.");',
+    '    }',
+    '    return createHash("sha256").update(`${secret}:${token}`).digest("hex");',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildGenericEmailProviderSource(): string {
+  return [
+    "import { Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';",
+    '',
+    '@Injectable()',
+    'export class EmailProvider {',
+    '  async sendEmail(to: string, subject: string, text: string): Promise<void> {',
+    '    const endpoint = process.env.EMAIL_PROVIDER_URL;',
+    '    const apiKey = process.env.EMAIL_PROVIDER_API_KEY;',
+    '    const from = process.env.EMAIL_FROM ?? "no-reply@example.com";',
+    '    if (!endpoint) {',
+    '      throw new ServiceUnavailableException("EMAIL_PROVIDER_URL is required to send email.");',
+    '    }',
+    '    if (!apiKey) {',
+    '      throw new ServiceUnavailableException("EMAIL_PROVIDER_API_KEY is required to send email.");',
+    '    }',
+    '    const response = await fetch(endpoint, {',
+    '      method: "POST",',
+    '      headers: {',
+    '        "Authorization": `Bearer ${apiKey}`,',
+    '        "Content-Type": "application/json",',
+    '      },',
+    '      body: JSON.stringify({ from, to, subject, text }),',
+    '    });',
+    '    if (!response.ok) {',
+    '      throw new InternalServerErrorException(`Email provider request failed with ${response.status}`);',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildUserRepositorySource(): string {
+  return [
+    "import { Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';",
+    '',
+    '@Injectable()',
+    'export class UserRepository {',
+    '  async createUser(input: { name: string; email: string; phoneNumber?: string }): Promise<{ id: string }> {',
+    '    const endpoint = process.env.USER_API_URL;',
+    '    if (!endpoint) {',
+    '      throw new ServiceUnavailableException("USER_API_URL is required for user writes.");',
+    '    }',
+    '    const response = await fetch(endpoint, {',
+    '      method: "POST",',
+    '      headers: { "Content-Type": "application/json" },',
+    '      body: JSON.stringify(input),',
+    '    });',
+    '    if (!response.ok) {',
+    '      throw new InternalServerErrorException(`User repository request failed with ${response.status}`);',
+    '    }',
+    '    return (await response.json()) as { id: string };',
+    '  }',
+    '',
+    '  async markEmailVerified(email: string): Promise<void> {',
+    '    const endpoint = process.env.USER_API_URL;',
+    '    if (!endpoint) {',
+    '      throw new ServiceUnavailableException("USER_API_URL is required for user writes.");',
+    '    }',
+    '    const response = await fetch(`${endpoint}/verify-email`, {',
+    '      method: "PATCH",',
+    '      headers: { "Content-Type": "application/json" },',
+    '      body: JSON.stringify({ email, verified: true }),',
+    '    });',
+    '    if (!response.ok) {',
+    '      throw new InternalServerErrorException(`User verification update failed with ${response.status}`);',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
+function buildUserPasswordRepositorySource(): string {
+  return [
+    "import { Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';",
+    '',
+    '@Injectable()',
+    'export class UserPasswordRepository {',
+    '  async updatePasswordHash(email: string, passwordHash: string): Promise<void> {',
+    '    const endpoint = process.env.USER_PASSWORD_API_URL;',
+    '    if (!endpoint) {',
+    '      throw new ServiceUnavailableException("USER_PASSWORD_API_URL is required for password updates.");',
+    '    }',
+    '    const response = await fetch(endpoint, {',
+    '      method: "PATCH",',
+    '      headers: { "Content-Type": "application/json" },',
+    '      body: JSON.stringify({ email, passwordHash }),',
+    '    });',
+    '    if (!response.ok) {',
+    '      throw new InternalServerErrorException(`Password update failed with ${response.status}`);',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+}
+
 function buildGenericWorkflowTypesSource(moduleName: string): string {
   return [
     `export type ${moduleName}Result = {`,
@@ -477,6 +1142,26 @@ function buildGenericWorkflowTypesSource(moduleName: string): string {
     '  input: Record<string, unknown>;',
     '  warnings: string[];',
     '};',
+  ].join('\n');
+}
+
+function buildEmailVerificationTypesSource(): string {
+  return [
+    'export type CreateVerificationResult = { ok: true };',
+    'export type VerifyEmailResult = { ok: true; verified: true };',
+  ].join('\n');
+}
+
+function buildPasswordResetTypesSource(): string {
+  return [
+    'export type RequestPasswordResetResult = { ok: true };',
+    'export type PasswordResetResult = { ok: true; passwordUpdated: true };',
+  ].join('\n');
+}
+
+function buildUserOnboardingTypesSource(): string {
+  return [
+    'export type UserOnboardingResult = { ok: true; userId: string };',
   ].join('\n');
 }
 
@@ -510,6 +1195,45 @@ function buildGenericWorkflowReadme(
     '',
     '- Add concrete providers/repositories for side-effect nodes before production use.',
     '- Keep controllers thin and move workflow behavior into the service as providers become supported.',
+    '',
+  ].join('\n');
+}
+
+function buildLifecycleReadme(
+  context: GeneratorContext,
+  title: string,
+  summary: string,
+): string {
+  return [
+    `# ${title}`,
+    '',
+    `Generated from FORGE workflow "${context.workflow.name}".`,
+    '',
+    `This module ${summary}`,
+    '',
+    '## Install dependencies',
+    '',
+    '```bash',
+    'npm install class-validator class-transformer',
+    '```',
+    '',
+    'Enable NestJS validation globally if your app has not already done so.',
+    '',
+    '## Register the module',
+    '',
+    'Import the generated module into your NestJS application module.',
+    '',
+    '## Required environment variables',
+    '',
+    'See `.env.example` in this generated folder.',
+    '',
+    '## Production replacement points',
+    '',
+    '- Provider classes are generic HTTP integration boundaries.',
+    '- Token stores are demo-only in-memory stores and must be replaced with Redis or a database before production.',
+    '- Repository providers should be replaced with your application database/repository implementations.',
+    '',
+    'No provider credentials are generated. Secret values are represented with placeholders only.',
     '',
   ].join('\n');
 }
@@ -1381,6 +2105,31 @@ function isPaymentWebhookWorkflow(nodes: CanvasNode[]): boolean {
 function isOtpAuthWorkflow(nodes: CanvasNode[]): boolean {
   return nodes.some((node) =>
     ['generateOtp', 'verifyOtp'].includes(node.nodeType),
+  );
+}
+
+function isEmailVerificationWorkflow(nodes: CanvasNode[]): boolean {
+  return nodes.some((node) =>
+    ['createVerificationToken', 'verifyToken'].includes(node.nodeType),
+  );
+}
+
+function isPasswordResetWorkflow(nodes: CanvasNode[]): boolean {
+  return nodes.some((node) =>
+    ['generateResetToken', 'verifyResetToken', 'passwordHash'].includes(
+      node.nodeType,
+    ),
+  );
+}
+
+function isUserOnboardingWorkflow(nodes: CanvasNode[]): boolean {
+  const nodeTypes = new Set(nodes.map((node) => node.nodeType));
+  return (
+    nodeTypes.has('databaseWrite') &&
+    nodeTypes.has('sendEmail') &&
+    !isEmailVerificationWorkflow(nodes) &&
+    !isPasswordResetWorkflow(nodes) &&
+    !isOtpAuthWorkflow(nodes)
   );
 }
 

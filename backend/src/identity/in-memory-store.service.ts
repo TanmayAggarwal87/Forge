@@ -1369,6 +1369,37 @@ export class InMemoryStoreService implements OnModuleInit {
     return JSON.parse(JSON.stringify(value)) as T;
   }
 
+  private resolveFallbackWorkspaceId(workflow: Workflow): string | null {
+    if (isUuid(workflow.projectId)) {
+      return workflow.projectId;
+    }
+
+    const ownerMembership = this.members.find(
+      (member) => member.userId === workflow.createdByUserId,
+    );
+    const firstWorkspaceId = Array.from(this.workspaces.keys())[0];
+
+    return ownerMembership?.workspaceId ?? firstWorkspaceId ?? null;
+  }
+
+  private resolveGeneratedArtifactProjectId(
+    artifact: GeneratedArtifact,
+  ): string | null {
+    if (isUuid(artifact.projectId)) {
+      return artifact.projectId;
+    }
+
+    const workflow = this.workflows.get(artifact.workflowId);
+    if (!workflow) {
+      return null;
+    }
+
+    return (
+      toNullableUuid(workflow.projectId) ??
+      this.resolveFallbackWorkspaceId(workflow)
+    );
+  }
+
   private isDatabaseConfigured(): boolean {
     return Boolean(
       this.userRepository &&
@@ -1399,6 +1430,7 @@ export class InMemoryStoreService implements OnModuleInit {
         passwordSalt: user.passwordSalt,
         createdAt: new Date(user.createdAt),
       })),
+      { chunk: 1 },
     );
     await this.sessionRepository!.save(
       database.sessions.map((session) => ({
@@ -1407,6 +1439,7 @@ export class InMemoryStoreService implements OnModuleInit {
         createdAt: new Date(session.createdAt),
         expiresAt: new Date(session.expiresAt),
       })),
+      { chunk: 1 },
     );
     await this.workspaceRepository!.save(
       database.workspaces.map((workspace) => ({
@@ -1419,6 +1452,7 @@ export class InMemoryStoreService implements OnModuleInit {
         createdAt: new Date(workspace.createdAt),
         updatedAt: new Date(workspace.createdAt),
       })),
+      { chunk: 1 },
     );
     await this.projectRepository!.save(
       database.projects.map((project) => ({
@@ -1431,44 +1465,71 @@ export class InMemoryStoreService implements OnModuleInit {
         createdAt: new Date(project.createdAt),
         updatedAt: new Date(project.createdAt),
       })),
+      { chunk: 1 },
     );
-    await this.workflowRepository!.save(
-      database.workflows.map((workflow) => {
-        const project = this.projects.get(workflow.projectId);
+    const workflowEntities = database.workflows.flatMap((workflow) => {
+      const projectId = toNullableUuid(workflow.projectId);
+      const project = projectId ? this.projects.get(projectId) : undefined;
+      const workspaceId =
+        project?.workspaceId ?? this.resolveFallbackWorkspaceId(workflow);
 
-        return {
+      if (!workspaceId || !isUuid(workflow.id)) {
+        this.logger.warn(
+          `Skipping workflow ${workflow.id} during PostgreSQL persistence because one or more UUID references are invalid.`,
+        );
+        return [];
+      }
+
+      return [
+        {
           id: workflow.id,
-          workspaceId: project?.workspaceId ?? workflow.projectId,
-          projectId: workflow.projectId || null,
+          workspaceId,
+          projectId,
           name: workflow.name,
           slug: workflow.slug,
           description: workflow.description,
           status: workflow.status,
-          draftVersionId: workflow.draftVersionId || null,
-          publishedVersionId: workflow.publishedVersionId,
+          draftVersionId: toNullableUuid(workflow.draftVersionId),
+          publishedVersionId: toNullableUuid(workflow.publishedVersionId),
           createdByUserId: workflow.createdByUserId,
           createdAt: new Date(workflow.createdAt),
           updatedAt: new Date(workflow.updatedAt),
-        };
-      }),
-    );
+        },
+      ];
+    });
+
+    await this.workflowRepository!.save(workflowEntities, { chunk: 1 });
     await this.workflowVersionRepository!.save(
-      database.workflowVersions.map((version) => ({
-        id: version.id,
-        workflowId: version.workflowId,
-        projectId: version.projectId || null,
-        versionNumber: version.versionNumber,
-        status: version.status,
-        nodesJson: version.graph.nodes,
-        edgesJson: version.graph.edges,
-        viewportJson: null,
-        validation: version.validation,
-        compiledIr: version.compiledIr,
-        createdBy: version.createdByUserId,
-        createdAt: new Date(version.createdAt),
-        updatedAt: new Date(version.updatedAt),
-        publishedAt: version.publishedAt ? new Date(version.publishedAt) : null,
-      })),
+      database.workflowVersions.flatMap((version) => {
+        if (!isUuid(version.workflowId)) {
+          this.logger.warn(
+            `Skipping workflow version ${version.id} during PostgreSQL persistence because workflowId is not a UUID.`,
+          );
+          return [];
+        }
+
+        return [
+          {
+            id: version.id,
+            workflowId: version.workflowId,
+            projectId: toNullableUuid(version.projectId),
+            versionNumber: version.versionNumber,
+            status: version.status,
+            nodesJson: version.graph.nodes,
+            edgesJson: version.graph.edges,
+            viewportJson: null,
+            validation: version.validation,
+            compiledIr: version.compiledIr,
+            createdBy: version.createdByUserId,
+            createdAt: new Date(version.createdAt),
+            updatedAt: new Date(version.updatedAt),
+            publishedAt: version.publishedAt
+              ? new Date(version.publishedAt)
+              : null,
+          },
+        ];
+      }),
+      { chunk: 1 },
     );
     await this.workflowExecutionRepository!.save(
       database.workflowExecutions.map((execution) => ({
@@ -1490,6 +1551,7 @@ export class InMemoryStoreService implements OnModuleInit {
           : null,
         updatedAt: new Date(execution.updatedAt),
       })),
+      { chunk: 1 },
     );
     await this.workflowExecutionStepRepository!.save(
       database.workflowExecutionSteps.map((step) => ({
@@ -1510,6 +1572,7 @@ export class InMemoryStoreService implements OnModuleInit {
         durationMs: step.durationMs,
         updatedAt: new Date(step.updatedAt),
       })),
+      { chunk: 1 },
     );
     await this.workflowExecutionLogRepository!.save(
       database.workflowExecutionLogs.map((log) => ({
@@ -1522,20 +1585,39 @@ export class InMemoryStoreService implements OnModuleInit {
         metadata: log.metadata,
         createdAt: new Date(log.createdAt),
       })),
+      { chunk: 1 },
     );
     await this.generatedArtifactRepository!.save(
-      database.generatedArtifacts.map((artifact) => ({
-        id: artifact.id,
-        projectId: artifact.projectId,
-        workflowId: artifact.workflowId,
-        workflowVersionId: artifact.workflowVersionId,
-        type: artifact.type,
-        name: artifact.name,
-        contentType: artifact.contentType,
-        checksum: artifact.checksum,
-        content: artifact.content,
-        createdAt: new Date(artifact.createdAt),
-      })),
+      database.generatedArtifacts.flatMap((artifact) => {
+        const projectId = this.resolveGeneratedArtifactProjectId(artifact);
+
+        if (
+          !projectId ||
+          !isUuid(artifact.workflowId) ||
+          !isUuid(artifact.workflowVersionId)
+        ) {
+          this.logger.warn(
+            `Skipping generated artifact ${artifact.id} during PostgreSQL persistence because one or more UUID references are invalid.`,
+          );
+          return [];
+        }
+
+        return [
+          {
+            id: artifact.id,
+            projectId,
+            workflowId: artifact.workflowId,
+            workflowVersionId: artifact.workflowVersionId,
+            type: artifact.type,
+            name: artifact.name,
+            contentType: artifact.contentType,
+            checksum: artifact.checksum,
+            content: artifact.content,
+            createdAt: new Date(artifact.createdAt),
+          },
+        ];
+      }),
+      { chunk: 1 },
     );
     await this.auditLogRepository!.save(
       database.auditLogs.map((log) => ({
@@ -1549,6 +1631,7 @@ export class InMemoryStoreService implements OnModuleInit {
         metadataJson: log.metadata,
         createdAt: new Date(log.createdAt),
       })),
+      { chunk: 1 },
     );
   }
 
@@ -1565,4 +1648,17 @@ function toIsoString(value: Date | string): string {
   return value instanceof Date
     ? value.toISOString()
     : new Date(value).toISOString();
+}
+
+function toNullableUuid(value: string | null | undefined): string | null {
+  return isUuid(value) ? value : null;
+}
+
+function isUuid(value: string | null | undefined): value is string {
+  return Boolean(
+    value &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    ),
+  );
 }
