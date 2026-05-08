@@ -11,6 +11,7 @@ import type { Repository } from 'typeorm';
 import {
   AuditLogEntity,
   GeneratedArtifactEntity,
+  ProjectEntity,
   WorkflowEntity,
   WorkflowTemplateEntity,
   WorkflowVersionEntity,
@@ -47,6 +48,9 @@ export class WorkflowPersistenceService {
     @InjectRepository(WorkspaceEntity)
     private readonly workspaceRepository?: Repository<WorkspaceEntity>,
     @Optional()
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepository?: Repository<ProjectEntity>,
+    @Optional()
     @InjectRepository(AuditLogEntity)
     private readonly auditLogRepository?: Repository<AuditLogEntity>,
     @Optional()
@@ -70,6 +74,10 @@ export class WorkflowPersistenceService {
     body: Record<string, unknown>,
   ) {
     const workspace = await this.getWorkspaceForUser(workspaceId, userId);
+    const project = await this.ensureDefaultProjectForWorkspace(
+      workspace,
+      userId,
+    );
     const name = requireString(body.name, 'name', 120);
     const description =
       body.description === undefined || body.description === null
@@ -78,7 +86,7 @@ export class WorkflowPersistenceService {
     const workflow: WorkflowEntity =
       await this.requireWorkflowRepository().save({
         workspaceId: workspace.id,
-        projectId: null,
+        projectId: project.id,
         name,
         slug: this.slugify(name),
         description,
@@ -342,6 +350,31 @@ export class WorkflowPersistenceService {
     return workspace;
   }
 
+  private async ensureDefaultProjectForWorkspace(
+    workspace: WorkspaceEntity,
+    userId: string,
+  ): Promise<ProjectEntity> {
+    const repository = this.requireProjectRepository();
+    const existingProject = await repository.findOne({
+      where: { workspaceId: workspace.id },
+      order: { createdAt: 'ASC' },
+    });
+
+    if (existingProject) {
+      return existingProject;
+    }
+
+    const projectName = `${workspace.name} Project`;
+
+    return repository.save({
+      workspaceId: workspace.id,
+      name: projectName,
+      slug: this.slugify(projectName),
+      description: 'Default project for workspace workflows.',
+      createdByUserId: userId,
+    });
+  }
+
   private async getTemplateRecord(templateId: string) {
     if (!this.templateRepository) {
       const template = systemWorkflowTemplates.find(
@@ -554,6 +587,14 @@ export class WorkflowPersistenceService {
     }
 
     return this.workspaceRepository;
+  }
+
+  private requireProjectRepository() {
+    if (!this.projectRepository) {
+      throw new ServiceUnavailableException('Database is not configured.');
+    }
+
+    return this.projectRepository;
   }
 
   private slugify(value: string): string {

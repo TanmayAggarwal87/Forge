@@ -23,6 +23,7 @@ import type { DatabaseShape } from './database-shape.types';
 @Injectable()
 export class PostgresStatePersisterService {
   private readonly logger = new Logger(PostgresStatePersisterService.name);
+  private readonly warningKeys = new Set<string>();
   private persistQueue = Promise.resolve();
 
   constructor(
@@ -157,18 +158,27 @@ export class PostgresStatePersisterService {
     );
 
     const workflowEntities = database.workflows.flatMap((workflow) => {
-      const projectId = toNullableUuid(workflow.projectId);
-      const project = projectId
-        ? this.state.projects.get(projectId)
+      const requestedProjectId = toNullableUuid(workflow.projectId);
+      const project = requestedProjectId
+        ? this.state.projects.get(requestedProjectId)
         : undefined;
+      const projectId = project?.id ?? null;
       const workspaceId =
         project?.workspaceId ?? this.resolveFallbackWorkspaceId(workflow);
 
       if (!workspaceId || !isUuid(workflow.id)) {
-        this.logger.warn(
+        this.warnOnce(
+          `workflow-invalid-${workflow.id}`,
           `Skipping workflow ${workflow.id} during PostgreSQL persistence because one or more UUID references are invalid.`,
         );
         return [];
+      }
+
+      if (requestedProjectId && !project) {
+        this.warnOnce(
+          `workflow-missing-project-${workflow.id}`,
+          `Persisting workflow ${workflow.id} without project_id because project ${requestedProjectId} does not exist in memory state.`,
+        );
       }
 
       return [
@@ -190,20 +200,31 @@ export class PostgresStatePersisterService {
     });
 
     await this.workflowRepository!.save(workflowEntities, { chunk: 1 });
+    const persistedWorkflowIds = new Set(
+      workflowEntities.map((workflow) => workflow.id),
+    );
     await this.workflowVersionRepository!.save(
       database.workflowVersions.flatMap((version) => {
-        if (!isUuid(version.workflowId)) {
-          this.logger.warn(
-            `Skipping workflow version ${version.id} during PostgreSQL persistence because workflowId is not a UUID.`,
+        if (
+          !isUuid(version.workflowId) ||
+          !persistedWorkflowIds.has(version.workflowId)
+        ) {
+          this.warnOnce(
+            `workflow-version-invalid-${version.id}`,
+            `Skipping workflow version ${version.id} during PostgreSQL persistence because its workflow reference is invalid.`,
           );
           return [];
         }
+
+        const projectId = toNullableUuid(version.projectId);
+        const persistedProjectId =
+          projectId && this.state.projects.has(projectId) ? projectId : null;
 
         return [
           {
             id: version.id,
             workflowId: version.workflowId,
-            projectId: toNullableUuid(version.projectId),
+            projectId: persistedProjectId,
             versionNumber: version.versionNumber,
             status: version.status,
             nodesJson: version.graph.nodes,
@@ -327,7 +348,10 @@ export class PostgresStatePersisterService {
   }
 
   private resolveFallbackWorkspaceId(workflow: Workflow): string | null {
-    if (isUuid(workflow.projectId)) {
+    if (
+      isUuid(workflow.projectId) &&
+      this.state.workspaces.has(workflow.projectId)
+    ) {
       return workflow.projectId;
     }
 
@@ -351,9 +375,17 @@ export class PostgresStatePersisterService {
       return null;
     }
 
-    return (
-      toNullableUuid(workflow.projectId) ??
-      this.resolveFallbackWorkspaceId(workflow)
-    );
+    const projectId = toNullableUuid(workflow.projectId);
+
+    return projectId && this.state.projects.has(projectId) ? projectId : null;
+  }
+
+  private warnOnce(key: string, message: string): void {
+    if (this.warningKeys.has(key)) {
+      return;
+    }
+
+    this.warningKeys.add(key);
+    this.logger.warn(message);
   }
 }
