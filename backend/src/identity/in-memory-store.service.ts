@@ -46,8 +46,9 @@ import { AuthStore } from './stores/auth.store';
 import { ForgeMemoryState } from './stores/forge-memory-state.service';
 import { ProjectStore } from './stores/project.store';
 import { toIsoString } from './stores/utils/date.util';
-import { slugify } from './stores/utils/slug.util';
 import { isUuid, toNullableUuid } from './stores/utils/uuid.util';
+import { WorkflowStore } from './stores/workflow.store';
+import { WorkflowVersionStore } from './stores/workflow-version.store';
 import { WorkspaceStore } from './stores/workspace.store';
 
 type CreateWorkspaceInput = {
@@ -149,6 +150,19 @@ export class InMemoryStoreService implements OnModuleInit {
     private readonly projectStore: ProjectStore = new ProjectStore(
       state,
       workspaceStore,
+      auditLogStore,
+    ),
+    @Optional()
+    private readonly workflowStore: WorkflowStore = new WorkflowStore(
+      state,
+      projectStore,
+      auditLogStore,
+    ),
+    @Optional()
+    private readonly workflowVersionStore: WorkflowVersionStore = new WorkflowVersionStore(
+      state,
+      projectStore,
+      workflowStore,
       auditLogStore,
     ),
     @Optional()
@@ -276,84 +290,16 @@ export class InMemoryStoreService implements OnModuleInit {
   createWorkflow(input: CreateWorkflowInput): Workflow & {
     draftVersion: WorkflowVersion;
   } {
-    const project = this.getProjectForUser(input.projectId, input.actorUserId);
-    const now = new Date().toISOString();
-
-    const draftVersion: WorkflowVersion = {
-      id: randomUUID(),
-      workflowId: '',
-      projectId: input.projectId,
-      versionNumber: 1,
-      status: 'draft',
-      graph: input.graph,
-      validation: input.validation,
-      compiledIr: null,
-      createdByUserId: input.actorUserId,
-      createdAt: now,
-      updatedAt: now,
-      publishedAt: null,
-    };
-
-    const workflow: Workflow = {
-      id: randomUUID(),
-      projectId: input.projectId,
-      name: input.name,
-      slug: slugify(input.name),
-      description: input.description?.trim() || null,
-      status: 'draft',
-      draftVersionId: draftVersion.id,
-      publishedVersionId: null,
-      createdByUserId: input.actorUserId,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    draftVersion.workflowId = workflow.id;
-    this.state.workflows.set(workflow.id, workflow);
-    this.state.workflowVersions.set(draftVersion.id, draftVersion);
-    this.recordAudit({
-      actorUserId: input.actorUserId,
-      workspaceId: project.workspaceId,
-      action: 'workflow.created',
-      targetType: 'workflow',
-      targetId: workflow.id,
-      metadata: {
-        name: workflow.name,
-        nodeCount: draftVersion.graph.nodes.length,
-        edgeCount: draftVersion.graph.edges.length,
-      },
-    });
+    const workflow = this.workflowStore.createWorkflow(input);
     this.saveDatabase();
-
-    return {
-      ...workflow,
-      draftVersion,
-    };
+    return workflow;
   }
 
   listWorkflows(
     projectId: string,
     userId: string,
   ): Array<Workflow & { draftVersion: WorkflowVersion }> {
-    this.getProjectForUser(projectId, userId);
-
-    return Array.from(this.state.workflows.values())
-      .filter((workflow) => workflow.projectId === projectId)
-      .map((workflow) => {
-        const draftVersion = this.state.workflowVersions.get(
-          workflow.draftVersionId,
-        );
-
-        if (!draftVersion) {
-          throw new NotFoundException('Workflow draft version was not found.');
-        }
-
-        return {
-          ...workflow,
-          draftVersion,
-        };
-      })
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return this.workflowStore.listWorkflows(projectId, userId);
   }
 
   getWorkflowDraftForUser(
@@ -361,140 +307,27 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowId: string,
     userId: string,
   ): Workflow & { draftVersion: WorkflowVersion } {
-    this.getProjectForUser(projectId, userId);
-
-    const workflow = this.state.workflows.get(workflowId);
-    if (!workflow || workflow.projectId !== projectId) {
-      throw new NotFoundException('Workflow was not found.');
-    }
-
-    const draftVersion = this.state.workflowVersions.get(
-      workflow.draftVersionId,
+    return this.workflowStore.getWorkflowDraftForUser(
+      projectId,
+      workflowId,
+      userId,
     );
-    if (!draftVersion) {
-      throw new NotFoundException('Workflow draft version was not found.');
-    }
-
-    return {
-      ...workflow,
-      draftVersion,
-    };
   }
 
   saveWorkflowDraft(input: SaveWorkflowDraftInput): Workflow & {
     draftVersion: WorkflowVersion;
   } {
-    const workflow = this.getWorkflowDraftForUser(
-      input.projectId,
-      input.workflowId,
-      input.actorUserId,
-    );
-    const project = this.getProjectForUser(input.projectId, input.actorUserId);
-    const nextUpdatedAt = new Date().toISOString();
-
-    const updatedWorkflow: Workflow = {
-      ...workflow,
-      name: input.name ?? workflow.name,
-      slug: slugify(input.name ?? workflow.name),
-      description:
-        input.description === undefined
-          ? workflow.description
-          : input.description,
-      updatedAt: nextUpdatedAt,
-    };
-
-    const updatedDraftVersion: WorkflowVersion = {
-      ...workflow.draftVersion,
-      graph: input.graph,
-      validation: input.validation,
-      updatedAt: nextUpdatedAt,
-    };
-
-    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
-    this.state.workflowVersions.set(
-      updatedDraftVersion.id,
-      updatedDraftVersion,
-    );
-    this.recordAudit({
-      actorUserId: input.actorUserId,
-      workspaceId: project.workspaceId,
-      action: 'workflow.draft_saved',
-      targetType: 'workflow',
-      targetId: updatedWorkflow.id,
-      metadata: {
-        nodeCount: updatedDraftVersion.graph.nodes.length,
-        edgeCount: updatedDraftVersion.graph.edges.length,
-        issueCount: updatedDraftVersion.validation.issues.length,
-      },
-    });
+    const workflow = this.workflowStore.saveWorkflowDraft(input);
     this.saveDatabase();
-
-    return {
-      ...updatedWorkflow,
-      draftVersion: updatedDraftVersion,
-    };
+    return workflow;
   }
 
   publishWorkflow(input: PublishWorkflowInput): Workflow & {
     publishedVersion: WorkflowVersion;
   } {
-    const workflow = this.getWorkflowDraftForUser(
-      input.projectId,
-      input.workflowId,
-      input.actorUserId,
-    );
-    const project = this.getProjectForUser(input.projectId, input.actorUserId);
-    const now = new Date().toISOString();
-    const nextVersionNumber =
-      Math.max(
-        0,
-        ...Array.from(this.state.workflowVersions.values())
-          .filter((version) => version.workflowId === workflow.id)
-          .map((version) => version.versionNumber),
-      ) + 1;
-
-    const publishedVersion: WorkflowVersion = {
-      id: randomUUID(),
-      workflowId: workflow.id,
-      projectId: input.projectId,
-      versionNumber: nextVersionNumber,
-      status: 'published',
-      graph: this.cloneJson(workflow.draftVersion.graph),
-      validation: this.cloneJson(workflow.draftVersion.validation),
-      compiledIr: this.cloneJson(input.compiledIr),
-      createdByUserId: input.actorUserId,
-      createdAt: now,
-      updatedAt: now,
-      publishedAt: now,
-    };
-
-    const updatedWorkflow: Workflow = {
-      ...workflow,
-      status: 'published',
-      publishedVersionId: publishedVersion.id,
-      updatedAt: now,
-    };
-
-    this.state.workflowVersions.set(publishedVersion.id, publishedVersion);
-    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
-    this.recordAudit({
-      actorUserId: input.actorUserId,
-      workspaceId: project.workspaceId,
-      action: 'workflow.published',
-      targetType: 'workflow',
-      targetId: workflow.id,
-      metadata: {
-        workflowVersionId: publishedVersion.id,
-        versionNumber: publishedVersion.versionNumber,
-        graphHash: input.compiledIr.graphHash,
-      },
-    });
+    const workflow = this.workflowStore.publishWorkflow(input);
     this.saveDatabase();
-
-    return {
-      ...updatedWorkflow,
-      publishedVersion,
-    };
+    return workflow;
   }
 
   listWorkflowVersionsForUser(
@@ -502,15 +335,11 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowId: string,
     userId: string,
   ): WorkflowVersion[] {
-    const workflow = this.getWorkflowDraftForUser(
+    return this.workflowVersionStore.listWorkflowVersionsForUser(
       projectId,
       workflowId,
       userId,
     );
-
-    return Array.from(this.state.workflowVersions.values())
-      .filter((version) => version.workflowId === workflow.id)
-      .sort((left, right) => right.versionNumber - left.versionNumber);
   }
 
   getWorkflowVersionForUser(
@@ -519,106 +348,29 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowVersionId: string,
     userId: string,
   ): WorkflowVersion {
-    const workflow = this.getWorkflowDraftForUser(
+    return this.workflowVersionStore.getWorkflowVersionForUser(
       projectId,
       workflowId,
+      workflowVersionId,
       userId,
     );
-    const version = this.state.workflowVersions.get(workflowVersionId);
-
-    if (!version || version.workflowId !== workflow.id) {
-      throw new NotFoundException('Workflow version was not found.');
-    }
-
-    return version;
   }
 
   activateWorkflowVersion(input: ActivateWorkflowVersionInput): Workflow & {
     activeVersion: WorkflowVersion;
     previousVersionId: string | null;
   } {
-    const workflow = this.getWorkflowDraftForUser(
-      input.projectId,
-      input.workflowId,
-      input.actorUserId,
-    );
-    const project = this.getProjectForUser(input.projectId, input.actorUserId);
-    const version = this.state.workflowVersions.get(input.workflowVersionId);
-
-    if (
-      !version ||
-      version.workflowId !== workflow.id ||
-      version.status !== 'published'
-    ) {
-      throw new NotFoundException('Published workflow version was not found.');
-    }
-
-    const now = new Date().toISOString();
-    const previousVersionId = workflow.publishedVersionId;
-    const updatedWorkflow: Workflow = {
-      ...workflow,
-      status: 'published',
-      publishedVersionId: version.id,
-      updatedAt: now,
-    };
-
-    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
-    this.recordAudit({
-      actorUserId: input.actorUserId,
-      workspaceId: project.workspaceId,
-      action: input.auditAction,
-      targetType: 'workflow',
-      targetId: workflow.id,
-      metadata: {
-        previousVersionId,
-        workflowVersionId: version.id,
-        versionNumber: version.versionNumber,
-        graphHash: version.compiledIr?.graphHash ?? null,
-      },
-    });
+    const workflow = this.workflowVersionStore.activateWorkflowVersion(input);
     this.saveDatabase();
-
-    return {
-      ...updatedWorkflow,
-      activeVersion: version,
-      previousVersionId,
-    };
+    return workflow;
   }
 
   deactivateWorkflow(input: DeactivateWorkflowInput): Workflow & {
     previousVersionId: string | null;
   } {
-    const workflow = this.getWorkflowDraftForUser(
-      input.projectId,
-      input.workflowId,
-      input.actorUserId,
-    );
-    const project = this.getProjectForUser(input.projectId, input.actorUserId);
-    const previousVersionId = workflow.publishedVersionId;
-    const updatedWorkflow: Workflow = {
-      ...workflow,
-      status: previousVersionId ? 'inactive' : workflow.status,
-      publishedVersionId: null,
-      updatedAt: new Date().toISOString(),
-    };
-
-    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
-    this.recordAudit({
-      actorUserId: input.actorUserId,
-      workspaceId: project.workspaceId,
-      action: 'workflow.deactivated',
-      targetType: 'workflow',
-      targetId: workflow.id,
-      metadata: {
-        previousVersionId,
-      },
-    });
+    const workflow = this.workflowStore.deactivateWorkflow(input);
     this.saveDatabase();
-
-    return {
-      ...updatedWorkflow,
-      previousVersionId,
-    };
+    return workflow;
   }
 
   replaceGeneratedArtifactsForVersion(
@@ -678,28 +430,11 @@ export class InMemoryStoreService implements OnModuleInit {
     workflowId: string,
     userId: string,
   ): Workflow & { publishedVersion: WorkflowVersion } {
-    this.getProjectForUser(projectId, userId);
-
-    const workflow = this.state.workflows.get(workflowId);
-    if (!workflow || workflow.projectId !== projectId) {
-      throw new NotFoundException('Workflow was not found.');
-    }
-
-    if (!workflow.publishedVersionId) {
-      throw new NotFoundException('Workflow has no published version.');
-    }
-
-    const publishedVersion = this.state.workflowVersions.get(
-      workflow.publishedVersionId,
+    return this.workflowStore.getPublishedWorkflowForUser(
+      projectId,
+      workflowId,
+      userId,
     );
-    if (!publishedVersion || publishedVersion.status !== 'published') {
-      throw new NotFoundException('Published workflow version was not found.');
-    }
-
-    return {
-      ...workflow,
-      publishedVersion,
-    };
   }
 
   createWorkflowExecution(input: CreateExecutionInput): WorkflowExecution {
@@ -820,12 +555,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   getWorkflowVersionById(workflowVersionId: string): WorkflowVersion {
-    const version = this.state.workflowVersions.get(workflowVersionId);
-    if (!version) {
-      throw new NotFoundException('Workflow version was not found.');
-    }
-
-    return version;
+    return this.workflowVersionStore.getWorkflowVersionById(workflowVersionId);
   }
 
   listWorkflowExecutionsForUser(
@@ -1121,10 +851,6 @@ export class InMemoryStoreService implements OnModuleInit {
           error instanceof Error ? error.stack : String(error),
         );
       });
-  }
-
-  private cloneJson<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value)) as T;
   }
 
   private resolveFallbackWorkspaceId(workflow: Workflow): string | null {
