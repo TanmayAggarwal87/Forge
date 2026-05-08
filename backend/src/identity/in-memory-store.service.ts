@@ -43,6 +43,7 @@ import {
   WorkspaceMember,
   WorkspaceRole,
 } from './identity.types';
+import { ForgeMemoryState } from './stores/forge-memory-state.service';
 
 type CreateWorkspaceInput = {
   name: string;
@@ -125,25 +126,11 @@ type DatabaseShape = {
 @Injectable()
 export class InMemoryStoreService implements OnModuleInit {
   private readonly logger = new Logger(InMemoryStoreService.name);
-  private readonly users = new Map<string, User>();
-  private readonly usersByEmail = new Map<string, string>();
-  private readonly sessions = new Map<string, Session>();
-  private readonly workspaces = new Map<string, Workspace>();
-  private readonly members: WorkspaceMember[] = [];
-  private readonly projects = new Map<string, Project>();
-  private readonly workflows = new Map<string, Workflow>();
-  private readonly workflowVersions = new Map<string, WorkflowVersion>();
-  private readonly workflowExecutions = new Map<string, WorkflowExecution>();
-  private readonly workflowExecutionSteps = new Map<
-    string,
-    WorkflowExecutionStep
-  >();
-  private readonly workflowExecutionLogs: WorkflowExecutionLog[] = [];
-  private readonly generatedArtifacts = new Map<string, GeneratedArtifact>();
-  private readonly auditLogs: AuditLog[] = [];
   private persistQueue = Promise.resolve();
 
   constructor(
+    @Optional()
+    private readonly state: ForgeMemoryState = new ForgeMemoryState(),
     @Optional()
     @InjectRepository(UserEntity)
     private readonly userRepository?: Repository<UserEntity>,
@@ -192,7 +179,7 @@ export class InMemoryStoreService implements OnModuleInit {
     name: string,
   ): { token: string; user: SessionUser } {
     const normalizedEmail = email.trim().toLowerCase();
-    const existingUserId = this.usersByEmail.get(normalizedEmail);
+    const existingUserId = this.state.usersByEmail.get(normalizedEmail);
 
     if (existingUserId !== undefined) {
       throw new ConflictException('A user with this email already exists.');
@@ -213,9 +200,11 @@ export class InMemoryStoreService implements OnModuleInit {
 
   login(email: string, password: string): { token: string; user: SessionUser } {
     const normalizedEmail = email.trim().toLowerCase();
-    const existingUserId = this.usersByEmail.get(normalizedEmail);
+    const existingUserId = this.state.usersByEmail.get(normalizedEmail);
     const user =
-      existingUserId === undefined ? undefined : this.users.get(existingUserId);
+      existingUserId === undefined
+        ? undefined
+        : this.state.users.get(existingUserId);
 
     if (!user || !this.isPasswordValid(user, password)) {
       throw new UnauthorizedException('Email or password is incorrect.');
@@ -229,7 +218,7 @@ export class InMemoryStoreService implements OnModuleInit {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7);
 
-    this.sessions.set(token, {
+    this.state.sessions.set(token, {
       token,
       userId: user.id,
       createdAt: now.toISOString(),
@@ -250,18 +239,18 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   getSession(token: string): { session: Session; user: SessionUser } {
-    const session = this.sessions.get(token);
+    const session = this.state.sessions.get(token);
     if (!session || new Date(session.expiresAt).getTime() <= Date.now()) {
       if (session) {
-        this.sessions.delete(token);
+        this.state.sessions.delete(token);
         this.saveDatabase();
       }
       throw new UnauthorizedException('Authentication is required.');
     }
 
-    const user = this.users.get(session.userId);
+    const user = this.state.users.get(session.userId);
     if (!user) {
-      this.sessions.delete(token);
+      this.state.sessions.delete(token);
       this.saveDatabase();
       throw new UnauthorizedException('Authentication is required.');
     }
@@ -270,7 +259,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   signOut(token: string, actorUserId: string): void {
-    this.sessions.delete(token);
+    this.state.sessions.delete(token);
     this.recordAudit({
       actorUserId,
       workspaceId: null,
@@ -291,8 +280,8 @@ export class InMemoryStoreService implements OnModuleInit {
       createdAt: new Date().toISOString(),
     };
 
-    this.workspaces.set(workspace.id, workspace);
-    this.members.push({
+    this.state.workspaces.set(workspace.id, workspace);
+    this.state.members.push({
       workspaceId: workspace.id,
       userId: input.actorUserId,
       role: 'owner',
@@ -325,7 +314,7 @@ export class InMemoryStoreService implements OnModuleInit {
       createdAt: existing.createdAt,
     };
 
-    this.workspaces.set(workspaceId, updatedWorkspace);
+    this.state.workspaces.set(workspaceId, updatedWorkspace);
     this.recordAudit({
       actorUserId: userId,
       workspaceId,
@@ -344,23 +333,25 @@ export class InMemoryStoreService implements OnModuleInit {
 
   deleteWorkspace(workspaceId: string, userId: string): void {
     this.getWorkspaceForUser(workspaceId, userId);
-    this.workspaces.delete(workspaceId);
+    this.state.workspaces.delete(workspaceId);
 
-    for (const project of Array.from(this.projects.values())) {
+    for (const project of Array.from(this.state.projects.values())) {
       if (project.workspaceId !== workspaceId) {
         continue;
       }
 
-      this.projects.delete(project.id);
-      for (const workflow of Array.from(this.workflows.values())) {
+      this.state.projects.delete(project.id);
+      for (const workflow of Array.from(this.state.workflows.values())) {
         if (workflow.projectId !== project.id) {
           continue;
         }
 
-        this.workflows.delete(workflow.id);
-        for (const version of Array.from(this.workflowVersions.values())) {
+        this.state.workflows.delete(workflow.id);
+        for (const version of Array.from(
+          this.state.workflowVersions.values(),
+        )) {
           if (version.workflowId === workflow.id) {
-            this.workflowVersions.delete(version.id);
+            this.state.workflowVersions.delete(version.id);
           }
         }
       }
@@ -381,10 +372,10 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   listWorkspaces(userId: string): Array<Workspace & { role: WorkspaceRole }> {
-    return this.members
+    return this.state.members
       .filter((member) => member.userId === userId)
       .map((member) => {
-        const workspace = this.workspaces.get(member.workspaceId);
+        const workspace = this.state.workspaces.get(member.workspaceId);
         if (!workspace) {
           return null;
         }
@@ -399,7 +390,7 @@ export class InMemoryStoreService implements OnModuleInit {
     workspaceId: string,
     userId: string,
   ): Workspace & { role: WorkspaceRole } {
-    const workspace = this.workspaces.get(workspaceId);
+    const workspace = this.state.workspaces.get(workspaceId);
     const member = this.getMembership(workspaceId, userId);
 
     if (!workspace || !member) {
@@ -420,7 +411,7 @@ export class InMemoryStoreService implements OnModuleInit {
       createdAt: new Date().toISOString(),
     };
 
-    this.projects.set(project.id, project);
+    this.state.projects.set(project.id, project);
     this.recordAudit({
       actorUserId: input.actorUserId,
       workspaceId: input.workspaceId,
@@ -437,13 +428,13 @@ export class InMemoryStoreService implements OnModuleInit {
   listProjects(workspaceId: string, userId: string): Project[] {
     this.getWorkspaceForUser(workspaceId, userId);
 
-    return Array.from(this.projects.values()).filter(
+    return Array.from(this.state.projects.values()).filter(
       (project) => project.workspaceId === workspaceId,
     );
   }
 
   getProjectForUser(projectId: string, userId: string): Project {
-    const project = this.projects.get(projectId);
+    const project = this.state.projects.get(projectId);
     if (!project) {
       throw new NotFoundException('Project was not found.');
     }
@@ -488,8 +479,8 @@ export class InMemoryStoreService implements OnModuleInit {
     };
 
     draftVersion.workflowId = workflow.id;
-    this.workflows.set(workflow.id, workflow);
-    this.workflowVersions.set(draftVersion.id, draftVersion);
+    this.state.workflows.set(workflow.id, workflow);
+    this.state.workflowVersions.set(draftVersion.id, draftVersion);
     this.recordAudit({
       actorUserId: input.actorUserId,
       workspaceId: project.workspaceId,
@@ -516,10 +507,12 @@ export class InMemoryStoreService implements OnModuleInit {
   ): Array<Workflow & { draftVersion: WorkflowVersion }> {
     this.getProjectForUser(projectId, userId);
 
-    return Array.from(this.workflows.values())
+    return Array.from(this.state.workflows.values())
       .filter((workflow) => workflow.projectId === projectId)
       .map((workflow) => {
-        const draftVersion = this.workflowVersions.get(workflow.draftVersionId);
+        const draftVersion = this.state.workflowVersions.get(
+          workflow.draftVersionId,
+        );
 
         if (!draftVersion) {
           throw new NotFoundException('Workflow draft version was not found.');
@@ -540,12 +533,14 @@ export class InMemoryStoreService implements OnModuleInit {
   ): Workflow & { draftVersion: WorkflowVersion } {
     this.getProjectForUser(projectId, userId);
 
-    const workflow = this.workflows.get(workflowId);
+    const workflow = this.state.workflows.get(workflowId);
     if (!workflow || workflow.projectId !== projectId) {
       throw new NotFoundException('Workflow was not found.');
     }
 
-    const draftVersion = this.workflowVersions.get(workflow.draftVersionId);
+    const draftVersion = this.state.workflowVersions.get(
+      workflow.draftVersionId,
+    );
     if (!draftVersion) {
       throw new NotFoundException('Workflow draft version was not found.');
     }
@@ -585,8 +580,11 @@ export class InMemoryStoreService implements OnModuleInit {
       updatedAt: nextUpdatedAt,
     };
 
-    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
-    this.workflowVersions.set(updatedDraftVersion.id, updatedDraftVersion);
+    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.state.workflowVersions.set(
+      updatedDraftVersion.id,
+      updatedDraftVersion,
+    );
     this.recordAudit({
       actorUserId: input.actorUserId,
       workspaceId: project.workspaceId,
@@ -620,7 +618,7 @@ export class InMemoryStoreService implements OnModuleInit {
     const nextVersionNumber =
       Math.max(
         0,
-        ...Array.from(this.workflowVersions.values())
+        ...Array.from(this.state.workflowVersions.values())
           .filter((version) => version.workflowId === workflow.id)
           .map((version) => version.versionNumber),
       ) + 1;
@@ -647,8 +645,8 @@ export class InMemoryStoreService implements OnModuleInit {
       updatedAt: now,
     };
 
-    this.workflowVersions.set(publishedVersion.id, publishedVersion);
-    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.state.workflowVersions.set(publishedVersion.id, publishedVersion);
+    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
     this.recordAudit({
       actorUserId: input.actorUserId,
       workspaceId: project.workspaceId,
@@ -680,7 +678,7 @@ export class InMemoryStoreService implements OnModuleInit {
       userId,
     );
 
-    return Array.from(this.workflowVersions.values())
+    return Array.from(this.state.workflowVersions.values())
       .filter((version) => version.workflowId === workflow.id)
       .sort((left, right) => right.versionNumber - left.versionNumber);
   }
@@ -696,7 +694,7 @@ export class InMemoryStoreService implements OnModuleInit {
       workflowId,
       userId,
     );
-    const version = this.workflowVersions.get(workflowVersionId);
+    const version = this.state.workflowVersions.get(workflowVersionId);
 
     if (!version || version.workflowId !== workflow.id) {
       throw new NotFoundException('Workflow version was not found.');
@@ -715,7 +713,7 @@ export class InMemoryStoreService implements OnModuleInit {
       input.actorUserId,
     );
     const project = this.getProjectForUser(input.projectId, input.actorUserId);
-    const version = this.workflowVersions.get(input.workflowVersionId);
+    const version = this.state.workflowVersions.get(input.workflowVersionId);
 
     if (
       !version ||
@@ -734,7 +732,7 @@ export class InMemoryStoreService implements OnModuleInit {
       updatedAt: now,
     };
 
-    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
     this.recordAudit({
       actorUserId: input.actorUserId,
       workspaceId: project.workspaceId,
@@ -774,7 +772,7 @@ export class InMemoryStoreService implements OnModuleInit {
       updatedAt: new Date().toISOString(),
     };
 
-    this.workflows.set(updatedWorkflow.id, updatedWorkflow);
+    this.state.workflows.set(updatedWorkflow.id, updatedWorkflow);
     this.recordAudit({
       actorUserId: input.actorUserId,
       workspaceId: project.workspaceId,
@@ -798,9 +796,9 @@ export class InMemoryStoreService implements OnModuleInit {
     artifacts: GeneratedArtifact[],
   ): GeneratedArtifact[] {
     const version = this.getWorkflowVersionById(workflowVersionId);
-    for (const artifact of Array.from(this.generatedArtifacts.values())) {
+    for (const artifact of Array.from(this.state.generatedArtifacts.values())) {
       if (artifact.workflowVersionId === workflowVersionId) {
-        this.generatedArtifacts.delete(artifact.id);
+        this.state.generatedArtifacts.delete(artifact.id);
       }
     }
 
@@ -812,7 +810,7 @@ export class InMemoryStoreService implements OnModuleInit {
     }));
 
     for (const artifact of normalizedArtifacts) {
-      this.generatedArtifacts.set(artifact.id, artifact);
+      this.state.generatedArtifacts.set(artifact.id, artifact);
     }
 
     this.saveDatabase();
@@ -836,7 +834,7 @@ export class InMemoryStoreService implements OnModuleInit {
   listGeneratedArtifactsForVersion(
     workflowVersionId: string,
   ): GeneratedArtifact[] {
-    return Array.from(this.generatedArtifacts.values())
+    return Array.from(this.state.generatedArtifacts.values())
       .filter((artifact) => artifact.workflowVersionId === workflowVersionId)
       .sort((left, right) =>
         left.type === right.type
@@ -852,7 +850,7 @@ export class InMemoryStoreService implements OnModuleInit {
   ): Workflow & { publishedVersion: WorkflowVersion } {
     this.getProjectForUser(projectId, userId);
 
-    const workflow = this.workflows.get(workflowId);
+    const workflow = this.state.workflows.get(workflowId);
     if (!workflow || workflow.projectId !== projectId) {
       throw new NotFoundException('Workflow was not found.');
     }
@@ -861,7 +859,7 @@ export class InMemoryStoreService implements OnModuleInit {
       throw new NotFoundException('Workflow has no published version.');
     }
 
-    const publishedVersion = this.workflowVersions.get(
+    const publishedVersion = this.state.workflowVersions.get(
       workflow.publishedVersionId,
     );
     if (!publishedVersion || publishedVersion.status !== 'published') {
@@ -894,7 +892,7 @@ export class InMemoryStoreService implements OnModuleInit {
       updatedAt: now,
     };
 
-    this.workflowExecutions.set(execution.id, execution);
+    this.state.workflowExecutions.set(execution.id, execution);
     this.saveDatabase();
     return execution;
   }
@@ -906,7 +904,7 @@ export class InMemoryStoreService implements OnModuleInit {
     idempotencyKey: string,
   ): WorkflowExecution | null {
     return (
-      Array.from(this.workflowExecutions.values()).find(
+      Array.from(this.state.workflowExecutions.values()).find(
         (execution) =>
           execution.projectId === projectId &&
           execution.workflowId === workflowId &&
@@ -925,7 +923,7 @@ export class InMemoryStoreService implements OnModuleInit {
       >
     >,
   ): WorkflowExecution {
-    const execution = this.workflowExecutions.get(executionId);
+    const execution = this.state.workflowExecutions.get(executionId);
     if (!execution) {
       throw new NotFoundException('Workflow execution was not found.');
     }
@@ -936,7 +934,7 @@ export class InMemoryStoreService implements OnModuleInit {
       updatedAt: new Date().toISOString(),
     };
 
-    this.workflowExecutions.set(executionId, updatedExecution);
+    this.state.workflowExecutions.set(executionId, updatedExecution);
     this.saveDatabase();
     return updatedExecution;
   }
@@ -944,13 +942,13 @@ export class InMemoryStoreService implements OnModuleInit {
   upsertWorkflowExecutionStep(
     step: WorkflowExecutionStep,
   ): WorkflowExecutionStep {
-    this.workflowExecutionSteps.set(step.id, step);
+    this.state.workflowExecutionSteps.set(step.id, step);
     this.saveDatabase();
     return step;
   }
 
   appendWorkflowExecutionLog(log: WorkflowExecutionLog): WorkflowExecutionLog {
-    this.workflowExecutionLogs.push(log);
+    this.state.workflowExecutionLogs.push(log);
     this.saveDatabase();
     return log;
   }
@@ -966,7 +964,7 @@ export class InMemoryStoreService implements OnModuleInit {
   } {
     this.getWorkflowDraftForUser(projectId, workflowId, userId);
 
-    const execution = this.workflowExecutions.get(executionId);
+    const execution = this.state.workflowExecutions.get(executionId);
     if (
       !execution ||
       execution.projectId !== projectId ||
@@ -983,7 +981,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   getWorkflowExecutionById(executionId: string): WorkflowExecution {
-    const execution = this.workflowExecutions.get(executionId);
+    const execution = this.state.workflowExecutions.get(executionId);
     if (!execution) {
       throw new NotFoundException('Workflow execution was not found.');
     }
@@ -992,7 +990,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   getWorkflowVersionById(workflowVersionId: string): WorkflowVersion {
-    const version = this.workflowVersions.get(workflowVersionId);
+    const version = this.state.workflowVersions.get(workflowVersionId);
     if (!version) {
       throw new NotFoundException('Workflow version was not found.');
     }
@@ -1007,7 +1005,7 @@ export class InMemoryStoreService implements OnModuleInit {
   ): WorkflowExecution[] {
     this.getWorkflowDraftForUser(projectId, workflowId, userId);
 
-    return Array.from(this.workflowExecutions.values())
+    return Array.from(this.state.workflowExecutions.values())
       .filter(
         (execution) =>
           execution.projectId === projectId &&
@@ -1017,7 +1015,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   listWorkflowExecutionSteps(executionId: string): WorkflowExecutionStep[] {
-    return Array.from(this.workflowExecutionSteps.values())
+    return Array.from(this.state.workflowExecutionSteps.values())
       .filter((step) => step.executionId === executionId)
       .sort(
         (left, right) =>
@@ -1026,7 +1024,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   listWorkflowExecutionLogs(executionId: string): WorkflowExecutionLog[] {
-    return this.workflowExecutionLogs.filter(
+    return this.state.workflowExecutionLogs.filter(
       (log) => log.executionId === executionId,
     );
   }
@@ -1034,7 +1032,7 @@ export class InMemoryStoreService implements OnModuleInit {
   listAuditLogs(workspaceId: string, userId: string): AuditLog[] {
     this.getWorkspaceForUser(workspaceId, userId);
 
-    return this.auditLogs
+    return this.state.auditLogs
       .filter((log) => log.workspaceId === workspaceId)
       .slice()
       .reverse();
@@ -1052,8 +1050,8 @@ export class InMemoryStoreService implements OnModuleInit {
       createdAt: now,
     };
 
-    this.users.set(user.id, user);
-    this.usersByEmail.set(user.email, user.id);
+    this.state.users.set(user.id, user);
+    this.state.usersByEmail.set(user.email, user.id);
     this.saveDatabase();
     return user;
   }
@@ -1062,14 +1060,14 @@ export class InMemoryStoreService implements OnModuleInit {
     workspaceId: string,
     userId: string,
   ): WorkspaceMember | undefined {
-    return this.members.find(
+    return this.state.members.find(
       (member) =>
         member.workspaceId === workspaceId && member.userId === userId,
     );
   }
 
   private recordAudit(input: Omit<AuditLog, 'id' | 'createdAt'>): void {
-    this.auditLogs.push({
+    this.state.auditLogs.push({
       id: randomUUID(),
       createdAt: new Date().toISOString(),
       ...input,
@@ -1153,8 +1151,8 @@ export class InMemoryStoreService implements OnModuleInit {
         passwordSalt: userEntity.passwordSalt,
         createdAt: toIsoString(userEntity.createdAt),
       };
-      this.users.set(user.id, user);
-      this.usersByEmail.set(user.email, user.id);
+      this.state.users.set(user.id, user);
+      this.state.usersByEmail.set(user.email, user.id);
     }
 
     for (const sessionEntity of sessions) {
@@ -1164,7 +1162,7 @@ export class InMemoryStoreService implements OnModuleInit {
         createdAt: toIsoString(sessionEntity.createdAt),
         expiresAt: toIsoString(sessionEntity.expiresAt),
       };
-      this.sessions.set(session.token, session);
+      this.state.sessions.set(session.token, session);
     }
 
     for (const workspaceEntity of workspaces) {
@@ -1175,8 +1173,8 @@ export class InMemoryStoreService implements OnModuleInit {
         createdByUserId: workspaceEntity.userId,
         createdAt: toIsoString(workspaceEntity.createdAt),
       };
-      this.workspaces.set(workspace.id, workspace);
-      this.members.push({
+      this.state.workspaces.set(workspace.id, workspace);
+      this.state.members.push({
         workspaceId: workspace.id,
         userId: workspace.createdByUserId,
         role: 'owner',
@@ -1194,7 +1192,7 @@ export class InMemoryStoreService implements OnModuleInit {
         createdByUserId: projectEntity.createdByUserId,
         createdAt: toIsoString(projectEntity.createdAt),
       };
-      this.projects.set(project.id, project);
+      this.state.projects.set(project.id, project);
     }
 
     for (const workflowEntity of workflows) {
@@ -1211,7 +1209,7 @@ export class InMemoryStoreService implements OnModuleInit {
         createdAt: toIsoString(workflowEntity.createdAt),
         updatedAt: toIsoString(workflowEntity.updatedAt),
       };
-      this.workflows.set(workflow.id, workflow);
+      this.state.workflows.set(workflow.id, workflow);
     }
 
     for (const versionEntity of workflowVersions) {
@@ -1234,7 +1232,7 @@ export class InMemoryStoreService implements OnModuleInit {
           ? toIsoString(versionEntity.publishedAt)
           : null,
       };
-      this.workflowVersions.set(version.id, version);
+      this.state.workflowVersions.set(version.id, version);
     }
 
     for (const executionEntity of workflowExecutions) {
@@ -1259,7 +1257,7 @@ export class InMemoryStoreService implements OnModuleInit {
           : null,
         updatedAt: toIsoString(executionEntity.updatedAt),
       };
-      this.workflowExecutions.set(execution.id, execution);
+      this.state.workflowExecutions.set(execution.id, execution);
     }
 
     for (const stepEntity of workflowExecutionSteps) {
@@ -1285,10 +1283,10 @@ export class InMemoryStoreService implements OnModuleInit {
         durationMs: stepEntity.durationMs,
         updatedAt: toIsoString(stepEntity.updatedAt),
       };
-      this.workflowExecutionSteps.set(step.id, step);
+      this.state.workflowExecutionSteps.set(step.id, step);
     }
 
-    this.workflowExecutionLogs.push(
+    this.state.workflowExecutionLogs.push(
       ...workflowExecutionLogs.map(
         (logEntity): WorkflowExecutionLog => ({
           id: logEntity.id,
@@ -1316,10 +1314,10 @@ export class InMemoryStoreService implements OnModuleInit {
         content: artifactEntity.content,
         createdAt: toIsoString(artifactEntity.createdAt),
       };
-      this.generatedArtifacts.set(artifact.id, artifact);
+      this.state.generatedArtifacts.set(artifact.id, artifact);
     }
 
-    this.auditLogs.push(
+    this.state.auditLogs.push(
       ...auditLogs.map(
         (auditEntity): AuditLog => ({
           id: auditEntity.id,
@@ -1341,18 +1339,20 @@ export class InMemoryStoreService implements OnModuleInit {
     }
 
     const database: DatabaseShape = {
-      users: Array.from(this.users.values()),
-      sessions: Array.from(this.sessions.values()),
-      workspaces: Array.from(this.workspaces.values()),
-      members: this.members,
-      projects: Array.from(this.projects.values()),
-      workflows: Array.from(this.workflows.values()),
-      workflowVersions: Array.from(this.workflowVersions.values()),
-      workflowExecutions: Array.from(this.workflowExecutions.values()),
-      workflowExecutionSteps: Array.from(this.workflowExecutionSteps.values()),
-      workflowExecutionLogs: this.workflowExecutionLogs,
-      generatedArtifacts: Array.from(this.generatedArtifacts.values()),
-      auditLogs: this.auditLogs,
+      users: Array.from(this.state.users.values()),
+      sessions: Array.from(this.state.sessions.values()),
+      workspaces: Array.from(this.state.workspaces.values()),
+      members: this.state.members,
+      projects: Array.from(this.state.projects.values()),
+      workflows: Array.from(this.state.workflows.values()),
+      workflowVersions: Array.from(this.state.workflowVersions.values()),
+      workflowExecutions: Array.from(this.state.workflowExecutions.values()),
+      workflowExecutionSteps: Array.from(
+        this.state.workflowExecutionSteps.values(),
+      ),
+      workflowExecutionLogs: this.state.workflowExecutionLogs,
+      generatedArtifacts: Array.from(this.state.generatedArtifacts.values()),
+      auditLogs: this.state.auditLogs,
     };
 
     this.persistQueue = this.persistQueue
@@ -1374,10 +1374,10 @@ export class InMemoryStoreService implements OnModuleInit {
       return workflow.projectId;
     }
 
-    const ownerMembership = this.members.find(
+    const ownerMembership = this.state.members.find(
       (member) => member.userId === workflow.createdByUserId,
     );
-    const firstWorkspaceId = Array.from(this.workspaces.keys())[0];
+    const firstWorkspaceId = Array.from(this.state.workspaces.keys())[0];
 
     return ownerMembership?.workspaceId ?? firstWorkspaceId ?? null;
   }
@@ -1389,7 +1389,7 @@ export class InMemoryStoreService implements OnModuleInit {
       return artifact.projectId;
     }
 
-    const workflow = this.workflows.get(artifact.workflowId);
+    const workflow = this.state.workflows.get(artifact.workflowId);
     if (!workflow) {
       return null;
     }
@@ -1469,7 +1469,9 @@ export class InMemoryStoreService implements OnModuleInit {
     );
     const workflowEntities = database.workflows.flatMap((workflow) => {
       const projectId = toNullableUuid(workflow.projectId);
-      const project = projectId ? this.projects.get(projectId) : undefined;
+      const project = projectId
+        ? this.state.projects.get(projectId)
+        : undefined;
       const workspaceId =
         project?.workspaceId ?? this.resolveFallbackWorkspaceId(workflow);
 
