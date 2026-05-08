@@ -43,6 +43,7 @@ import {
   WorkspaceMember,
   WorkspaceRole,
 } from './identity.types';
+import { AuditLogStore } from './stores/audit-log.store';
 import { ForgeMemoryState } from './stores/forge-memory-state.service';
 import { toIsoString } from './stores/utils/date.util';
 import { hashPassword, isPasswordValid } from './stores/utils/password.util';
@@ -135,6 +136,8 @@ export class InMemoryStoreService implements OnModuleInit {
   constructor(
     @Optional()
     private readonly state: ForgeMemoryState = new ForgeMemoryState(),
+    @Optional()
+    private readonly auditLogStore: AuditLogStore = new AuditLogStore(state),
     @Optional()
     @InjectRepository(UserEntity)
     private readonly userRepository?: Repository<UserEntity>,
@@ -1034,12 +1037,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   listAuditLogs(workspaceId: string, userId: string): AuditLog[] {
-    this.getWorkspaceForUser(workspaceId, userId);
-
-    return this.state.auditLogs
-      .filter((log) => log.workspaceId === workspaceId)
-      .slice()
-      .reverse();
+    return this.auditLogStore.listAuditLogs(workspaceId, userId);
   }
 
   private createUser(email: string, password: string, name?: string): User {
@@ -1071,11 +1069,7 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   private recordAudit(input: Omit<AuditLog, 'id' | 'createdAt'>): void {
-    this.state.auditLogs.push({
-      id: randomUUID(),
-      createdAt: new Date().toISOString(),
-      ...input,
-    });
+    this.auditLogStore.recordAudit(input);
   }
 
   private toSessionUser(user: User): SessionUser {
