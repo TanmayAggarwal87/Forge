@@ -14,6 +14,8 @@ import { AuditLogStore } from './identity/stores/audit-log.store';
 import { AuthStore } from './identity/stores/auth.store';
 import { ForgeMemoryState } from './identity/stores/forge-memory-state.service';
 import { GeneratedArtifactStore } from './identity/stores/generated-artifact.store';
+import { PostgresStateLoaderService } from './identity/stores/persistence/postgres-state-loader.service';
+import { PostgresStatePersisterService } from './identity/stores/persistence/postgres-state-persister.service';
 import { ProjectStore } from './identity/stores/project.store';
 import { WorkflowExecutionStore } from './identity/stores/workflow-execution.store';
 import { WorkflowStore } from './identity/stores/workflow.store';
@@ -48,6 +50,8 @@ import { WorkflowsService } from './workflows/workflows.service';
     ForgeMemoryState,
     GeneratedArtifactStore,
     InMemoryStoreService,
+    PostgresStateLoaderService,
+    PostgresStatePersisterService,
     ProjectStore,
     ProjectsService,
     WorkflowExecutionService,
