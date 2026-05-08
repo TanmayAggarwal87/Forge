@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   CloudUpload,
   FileCode2,
+  LogOut,
   Redo2,
   Save,
   Undo2,
@@ -27,6 +28,7 @@ import {
   saveBackendWorkflowSnapshot,
 } from "@/features/workflow/backendWorkflowApi";
 import { getErrorMessage } from "@/lib/apiClient";
+import { signOutSession } from "@/lib/authSession";
 import { getStoredSessionToken } from "@/lib/sessionStorage";
 import { useUiStore } from "@/stores/uiStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
@@ -259,6 +261,11 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
     setConfigNodeId(null);
   }, [configNodeId, selectedNode, setConfigNodeId]);
 
+  async function handleLogout() {
+    await signOutSession(token);
+    router.replace("/login");
+  }
+
   if (!token) {
     return (
       <main className="grid h-screen place-items-center bg-[#f6f7f8] text-sm text-slate-600">
@@ -325,10 +332,20 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
             <FileCode2 />
             Artifacts
           </Button>
-          <div className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-600">
-            <UserCircle2 className="size-4" />
-            Profile
-          </div>
+          <Button asChild variant="outline" className="rounded-md">
+            <Link href="/profile">
+              <UserCircle2 />
+              Profile
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void handleLogout()}
+            className="rounded-md"
+          >
+            <LogOut />
+            Logout
+          </Button>
         </div>
       </header>
 

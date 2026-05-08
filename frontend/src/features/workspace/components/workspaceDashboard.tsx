@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { LogOut, Pencil, Plus, Trash2, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useUiStore } from "@/stores/uiStore";
 import { formatRelativeTime } from "@/features/workflow/utils";
 import { apiRequest, getErrorMessage } from "@/lib/apiClient";
+import { signOutSession } from "@/lib/authSession";
 import { getStoredSessionToken } from "@/lib/sessionStorage";
 import type { Workspace } from "@/features/workspace/types";
 
@@ -119,6 +120,11 @@ export function WorkspaceDashboard() {
     router.push(`/workspace/${workspaceId}`);
   }
 
+  async function handleLogout() {
+    await signOutSession(token);
+    router.replace("/login");
+  }
+
   async function handleDeleteWorkspace(workspaceId: string) {
     setErrorMessage(null);
 
@@ -173,12 +179,22 @@ export function WorkspaceDashboard() {
             </p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight">Workspace Dashboard</h1>
           </div>
-          <Link
-            href="/dashboard"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600"
-          >
-            All Workspaces
-          </Link>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" className="rounded-md border-slate-300 bg-white text-slate-700">
+              <Link href="/profile">
+                <UserCircle2 />
+                Profile
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleLogout()}
+              className="rounded-md border-slate-300 bg-white text-slate-700"
+            >
+              <LogOut />
+              Logout
+            </Button>
+          </div>
         </header>
 
         {!token ? (
