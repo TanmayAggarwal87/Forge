@@ -44,9 +44,11 @@ import {
 import { AuditLogStore } from './stores/audit-log.store';
 import { AuthStore } from './stores/auth.store';
 import { ForgeMemoryState } from './stores/forge-memory-state.service';
+import { ProjectStore } from './stores/project.store';
 import { toIsoString } from './stores/utils/date.util';
 import { slugify } from './stores/utils/slug.util';
 import { isUuid, toNullableUuid } from './stores/utils/uuid.util';
+import { WorkspaceStore } from './stores/workspace.store';
 
 type CreateWorkspaceInput = {
   name: string;
@@ -139,6 +141,17 @@ export class InMemoryStoreService implements OnModuleInit {
     @Optional()
     private readonly authStore: AuthStore = new AuthStore(state, auditLogStore),
     @Optional()
+    private readonly workspaceStore: WorkspaceStore = new WorkspaceStore(
+      state,
+      auditLogStore,
+    ),
+    @Optional()
+    private readonly projectStore: ProjectStore = new ProjectStore(
+      state,
+      workspaceStore,
+      auditLogStore,
+    ),
+    @Optional()
     @InjectRepository(UserEntity)
     private readonly userRepository?: Repository<UserEntity>,
     @Optional()
@@ -208,31 +221,8 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   createWorkspace(input: CreateWorkspaceInput): Workspace {
-    const workspace: Workspace = {
-      id: randomUUID(),
-      name: input.name,
-      slug: slugify(input.name),
-      createdByUserId: input.actorUserId,
-      createdAt: new Date().toISOString(),
-    };
-
-    this.state.workspaces.set(workspace.id, workspace);
-    this.state.members.push({
-      workspaceId: workspace.id,
-      userId: input.actorUserId,
-      role: 'owner',
-      createdAt: workspace.createdAt,
-    });
-    this.recordAudit({
-      actorUserId: input.actorUserId,
-      workspaceId: workspace.id,
-      action: 'workspace.created',
-      targetType: 'workspace',
-      targetId: workspace.id,
-      metadata: { name: workspace.name },
-    });
+    const workspace = this.workspaceStore.createWorkspace(input);
     this.saveDatabase();
-
     return workspace;
   }
 
@@ -241,66 +231,17 @@ export class InMemoryStoreService implements OnModuleInit {
     userId: string,
     patch: { name?: string; description?: string | null },
   ): Workspace & { role: WorkspaceRole } {
-    const existing = this.getWorkspaceForUser(workspaceId, userId);
-    const updatedWorkspace: Workspace = {
-      id: existing.id,
-      name: patch.name ?? existing.name,
-      slug: slugify(patch.name ?? existing.name),
-      createdByUserId: existing.createdByUserId,
-      createdAt: existing.createdAt,
-    };
-
-    this.state.workspaces.set(workspaceId, updatedWorkspace);
-    this.recordAudit({
-      actorUserId: userId,
+    const workspace = this.workspaceStore.updateWorkspace(
       workspaceId,
-      action: 'workspace.updated',
-      targetType: 'workspace',
-      targetId: workspaceId,
-      metadata: {
-        name: updatedWorkspace.name,
-        description: patch.description ?? null,
-      },
-    });
+      userId,
+      patch,
+    );
     this.saveDatabase();
-
-    return { ...updatedWorkspace, role: existing.role };
+    return workspace;
   }
 
   deleteWorkspace(workspaceId: string, userId: string): void {
-    this.getWorkspaceForUser(workspaceId, userId);
-    this.state.workspaces.delete(workspaceId);
-
-    for (const project of Array.from(this.state.projects.values())) {
-      if (project.workspaceId !== workspaceId) {
-        continue;
-      }
-
-      this.state.projects.delete(project.id);
-      for (const workflow of Array.from(this.state.workflows.values())) {
-        if (workflow.projectId !== project.id) {
-          continue;
-        }
-
-        this.state.workflows.delete(workflow.id);
-        for (const version of Array.from(
-          this.state.workflowVersions.values(),
-        )) {
-          if (version.workflowId === workflow.id) {
-            this.state.workflowVersions.delete(version.id);
-          }
-        }
-      }
-    }
-
-    this.recordAudit({
-      actorUserId: userId,
-      workspaceId: null,
-      action: 'workspace.deleted',
-      targetType: 'workspace',
-      targetId: workspaceId,
-      metadata: {},
-    });
+    this.workspaceStore.deleteWorkspace(workspaceId, userId);
     if (this.workspaceRepository) {
       void this.workspaceRepository.delete(workspaceId);
     }
@@ -308,75 +249,28 @@ export class InMemoryStoreService implements OnModuleInit {
   }
 
   listWorkspaces(userId: string): Array<Workspace & { role: WorkspaceRole }> {
-    return this.state.members
-      .filter((member) => member.userId === userId)
-      .map((member) => {
-        const workspace = this.state.workspaces.get(member.workspaceId);
-        if (!workspace) {
-          return null;
-        }
-        return { ...workspace, role: member.role };
-      })
-      .filter((workspace): workspace is Workspace & { role: WorkspaceRole } =>
-        Boolean(workspace),
-      );
+    return this.workspaceStore.listWorkspaces(userId);
   }
 
   getWorkspaceForUser(
     workspaceId: string,
     userId: string,
   ): Workspace & { role: WorkspaceRole } {
-    const workspace = this.state.workspaces.get(workspaceId);
-    const member = this.getMembership(workspaceId, userId);
-
-    if (!workspace || !member) {
-      throw new NotFoundException('Workspace was not found.');
-    }
-
-    return { ...workspace, role: member.role };
+    return this.workspaceStore.getWorkspaceForUser(workspaceId, userId);
   }
 
   createProject(input: CreateProjectInput): Project {
-    const project: Project = {
-      id: randomUUID(),
-      workspaceId: input.workspaceId,
-      name: input.name,
-      slug: slugify(input.name),
-      description: input.description?.trim() || null,
-      createdByUserId: input.actorUserId,
-      createdAt: new Date().toISOString(),
-    };
-
-    this.state.projects.set(project.id, project);
-    this.recordAudit({
-      actorUserId: input.actorUserId,
-      workspaceId: input.workspaceId,
-      action: 'project.created',
-      targetType: 'project',
-      targetId: project.id,
-      metadata: { name: project.name },
-    });
+    const project = this.projectStore.createProject(input);
     this.saveDatabase();
-
     return project;
   }
 
   listProjects(workspaceId: string, userId: string): Project[] {
-    this.getWorkspaceForUser(workspaceId, userId);
-
-    return Array.from(this.state.projects.values()).filter(
-      (project) => project.workspaceId === workspaceId,
-    );
+    return this.projectStore.listProjects(workspaceId, userId);
   }
 
   getProjectForUser(projectId: string, userId: string): Project {
-    const project = this.state.projects.get(projectId);
-    if (!project) {
-      throw new NotFoundException('Project was not found.');
-    }
-
-    this.getWorkspaceForUser(project.workspaceId, userId);
-    return project;
+    return this.projectStore.getProjectForUser(projectId, userId);
   }
 
   createWorkflow(input: CreateWorkflowInput): Workflow & {
@@ -967,16 +861,6 @@ export class InMemoryStoreService implements OnModuleInit {
 
   listAuditLogs(workspaceId: string, userId: string): AuditLog[] {
     return this.auditLogStore.listAuditLogs(workspaceId, userId);
-  }
-
-  private getMembership(
-    workspaceId: string,
-    userId: string,
-  ): WorkspaceMember | undefined {
-    return this.state.members.find(
-      (member) =>
-        member.workspaceId === workspaceId && member.userId === userId,
-    );
   }
 
   private recordAudit(input: Omit<AuditLog, 'id' | 'createdAt'>): void {

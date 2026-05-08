@@ -13,6 +13,8 @@ import { InMemoryStoreService } from './identity/in-memory-store.service';
 import { AuditLogStore } from './identity/stores/audit-log.store';
 import { AuthStore } from './identity/stores/auth.store';
 import { ForgeMemoryState } from './identity/stores/forge-memory-state.service';
+import { ProjectStore } from './identity/stores/project.store';
+import { WorkspaceStore } from './identity/stores/workspace.store';
 import { NodeRegistryController } from './workflows/node-registry.controller';
 import { TemplatesController } from './workflows/templates.controller';
 import { WorkflowExecutionService } from './workflows/workflow-execution.service';
@@ -41,11 +43,13 @@ import { WorkflowsService } from './workflows/workflows.service';
     AuthStore,
     ForgeMemoryState,
     InMemoryStoreService,
+    ProjectStore,
     ProjectsService,
     WorkflowExecutionService,
     WorkflowPersistenceService,
     WorkflowsService,
     WorkspacesService,
+    WorkspaceStore,
   ],
 })
 export class AppModule {}
