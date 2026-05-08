@@ -15,7 +15,7 @@ type NodeConfigPanelProps = {
 export function NodeConfigPanel({ workspaceId, node }: NodeConfigPanelProps) {
   if (!node) {
     return (
-      <aside className="flex h-full items-center justify-center border-l border-slate-200 bg-white p-6 text-sm text-slate-500">
+      <aside className="flex h-full items-center justify-center border-l border-stone-800 bg-stone-900 p-6 text-sm text-stone-400">
         Select a node to configure its settings.
       </aside>
     );
@@ -53,18 +53,18 @@ function NodeConfigPanelContent({
   );
 
   return (
-    <aside className="h-full border-l border-slate-200 bg-white">
-      <div className="border-b border-slate-200 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+    <aside className="h-full border-l border-stone-800 bg-stone-900 text-stone-100">
+      <div className="border-b border-stone-800 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">
           Node Settings
         </p>
-        <h2 className="mt-2 text-lg font-semibold text-slate-900">{node.data.label}</h2>
+        <h2 className="mt-2 text-lg font-semibold text-stone-100">{node.data.label}</h2>
       </div>
 
       <ConfigForm node={node} onChange={handleConfigChange} />
 
-      <div className="border-t border-slate-200 p-4">
-        <p className="text-xs leading-5 text-slate-500">{definition.description}</p>
+      <div className="border-t border-stone-800 p-4">
+        <p className="text-xs leading-5 text-stone-400">{definition.description}</p>
       </div>
     </aside>
   );
@@ -106,7 +106,7 @@ function ConfigForm({ node, onChange }: ConfigFormProps) {
 
         return (
           <label key={field.key} className="block">
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
               {field.label}
             </span>
 
@@ -115,12 +115,12 @@ function ConfigForm({ node, onChange }: ConfigFormProps) {
                 {...form.register(field.key)}
                 rows={4}
                 placeholder={field.placeholder}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-950"
+                className="w-full rounded-md border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none placeholder:text-stone-600 focus:border-amber-400"
               />
             ) : field.type === "select" ? (
               <select
                 {...form.register(field.key)}
-                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-950"
+                className="h-10 w-full rounded-md border border-stone-700 bg-stone-950 px-3 text-sm text-stone-100 outline-none focus:border-amber-400"
               >
                 {field.options?.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -137,11 +137,11 @@ function ConfigForm({ node, onChange }: ConfigFormProps) {
                 {...form.register(field.key, {
                   valueAsNumber: field.type === "number",
                 })}
-                className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-slate-950"
+                className="h-10 w-full rounded-md border border-stone-700 bg-stone-950 px-3 text-sm text-stone-100 outline-none placeholder:text-stone-600 focus:border-amber-400"
               />
             )}
 
-            {error ? <p className="mt-2 text-xs text-red-600">{String(error)}</p> : null}
+            {error ? <p className="mt-2 text-xs text-red-300">{String(error)}</p> : null}
           </label>
         );
       })}

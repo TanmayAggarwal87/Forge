@@ -13,7 +13,6 @@ import {
   Undo2,
   UserCircle2,
 } from "lucide-react";
-import { ThemeToggle } from "@/components/common/themeToggle";
 import { Button } from "@/components/ui/button";
 import { ArtifactDrawer } from "@/features/workflow/components/artifactDrawer";
 import { NodeConfigPanel } from "@/features/workflow/components/nodeConfigPanel";
@@ -274,7 +273,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
 
   if (!hasLoadedToken) {
     return (
-      <main className="grid h-screen place-items-center bg-[#f6f7f8] text-sm text-slate-600 dark:bg-stone-950 dark:text-stone-300">
+      <main className="grid h-screen place-items-center bg-stone-950 text-sm text-stone-300">
         Checking session...
       </main>
     );
@@ -282,7 +281,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
 
   if (!token) {
     return (
-      <main className="grid h-screen place-items-center bg-[#f6f7f8] text-sm text-slate-600 dark:bg-stone-950 dark:text-stone-300">
+      <main className="grid h-screen place-items-center bg-stone-950 text-sm text-stone-300">
         Opening login...
       </main>
     );
@@ -293,25 +292,24 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
   }
 
   return (
-    <main className="forge-themed-shell flex h-screen min-h-screen flex-col overflow-hidden bg-[#f6f7f8] text-slate-950 dark:bg-stone-950 dark:text-stone-50">
-      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-stone-800 dark:bg-stone-900">
+    <main className="dark forge-themed-shell flex h-screen min-h-screen flex-col overflow-hidden bg-stone-950 text-stone-50">
+      <header className="flex h-14 items-center justify-between border-b border-stone-800 bg-stone-900 px-4">
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard"
-            className="inline-flex size-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 dark:border-stone-700 dark:text-stone-300"
+            className="inline-flex size-9 items-center justify-center rounded-md border border-stone-700 text-stone-300 transition hover:border-amber-400 hover:text-amber-300"
           >
             <ChevronLeft className="size-4" />
           </Link>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-amber-300">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">
               Workspace
             </p>
-            <h1 className="text-sm font-semibold text-slate-900 dark:text-stone-50">{workspace.name}</h1>
+            <h1 className="text-sm font-semibold text-stone-50">{workspace.name}</h1>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <ThemeToggle />
           <Button variant="outline" onClick={() => undo(workspaceId)} className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
             <Undo2 />
             Undo
@@ -334,7 +332,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
               deployWorkflow(workspaceId);
               touchWorkspace(workspaceId);
             }}
-            className="rounded-md"
+            className="rounded-md bg-amber-500 text-stone-950 hover:bg-amber-400"
           >
             <CloudUpload />
             Deploy
@@ -342,7 +340,11 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
           <Button
             variant={artifactDrawerOpen ? "default" : "outline"}
             onClick={() => setArtifactDrawerOpen((open) => !open)}
-            className="rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+            className={
+              artifactDrawerOpen
+                ? "rounded-md bg-amber-500 text-stone-950 hover:bg-amber-400"
+                : "rounded-md dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+            }
           >
             <FileCode2 />
             Artifacts
@@ -380,7 +382,7 @@ export function WorkspaceEditor({ workspaceId }: WorkspaceEditorProps) {
         />
         <div className="min-w-0">
           {isLoadingWorkspace ? (
-            <div className="grid h-full place-items-center bg-[#fbfbfc] text-sm text-slate-500 dark:bg-stone-950 dark:text-stone-400">
+            <div className="grid h-full place-items-center bg-stone-950 text-sm text-stone-400">
               Loading workspace...
             </div>
           ) : (

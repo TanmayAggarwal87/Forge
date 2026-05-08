@@ -11,12 +11,12 @@ type CanvasToolbarProps = {
 
 export function CanvasToolbar({ zoomIn, zoomOut, zoomLabel }: CanvasToolbarProps) {
   return (
-    <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2 rounded-md border border-slate-200 bg-white p-1 shadow-sm">
-      <Button variant="ghost" size="icon-sm" onClick={zoomOut} className="rounded-md">
+    <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2 rounded-md border border-stone-800 bg-stone-900 p-1 shadow-lg shadow-black/20">
+      <Button variant="ghost" size="icon-sm" onClick={zoomOut} className="rounded-md text-stone-300 hover:bg-stone-800 hover:text-amber-300">
         <Minus />
       </Button>
-      <span className="min-w-12 text-center text-xs font-medium text-slate-600">{zoomLabel}</span>
-      <Button variant="ghost" size="icon-sm" onClick={zoomIn} className="rounded-md">
+      <span className="min-w-12 text-center text-xs font-medium text-stone-400">{zoomLabel}</span>
+      <Button variant="ghost" size="icon-sm" onClick={zoomIn} className="rounded-md text-stone-300 hover:bg-stone-800 hover:text-amber-300">
         <Plus />
       </Button>
     </div>

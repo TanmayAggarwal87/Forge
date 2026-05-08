@@ -155,54 +155,54 @@ export function NodeLibrarySidebar({
   }
 
   return (
-    <aside className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200 bg-white text-slate-950 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-50">
-      <div className="shrink-0 border-b border-slate-200 p-4 dark:border-stone-800">
+    <aside className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-stone-800 bg-stone-900 text-stone-50">
+      <div className="shrink-0 border-b border-stone-800 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-amber-300">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300">
               Forge
             </p>
-            <h2 className="mt-1 text-sm font-semibold text-slate-950 dark:text-stone-50">
+            <h2 className="mt-1 text-sm font-semibold text-stone-50">
               Node Library
             </h2>
           </div>
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-400">
+          <div className="rounded-md border border-stone-700 bg-stone-950 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-400">
             Drag
           </div>
         </div>
 
         <div className="relative mt-4">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400 dark:text-stone-500" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-500" />
           <input
             value={nodeSearch}
             onChange={(event) => setNodeSearch(event.target.value)}
             placeholder="Search nodes..."
-            className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-950 outline-none placeholder:text-slate-400 focus:border-slate-950 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-amber-400"
+            className="h-10 w-full rounded-md border border-stone-700 bg-stone-950 pl-9 pr-3 text-sm text-stone-100 outline-none placeholder:text-stone-500 focus:border-amber-400"
           />
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
-        <section className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-stone-800 dark:bg-stone-950/60">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-stone-400">
-            <Workflow className="size-3.5 text-slate-700 dark:text-amber-300" />
+        <section className="mb-4 rounded-md border border-stone-800 bg-stone-950/60 p-3">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
+            <Workflow className="size-3.5 text-amber-300" />
             Quick Start
           </div>
           <div className="mt-3 grid gap-2">
             {templatesLoading ? (
-              <div className="rounded-md border border-slate-200 bg-white px-3 py-4 text-xs text-slate-500">
+              <div className="rounded-md border border-stone-800 bg-stone-950 px-3 py-4 text-xs text-stone-400">
                 Loading templates...
               </div>
             ) : null}
 
             {!templatesLoading && templates.length === 0 ? (
-              <div className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-4 text-xs text-slate-500">
+              <div className="rounded-md border border-dashed border-stone-700 bg-stone-950 px-3 py-4 text-xs text-stone-400">
                 No templates found
               </div>
             ) : null}
 
             {templatesError ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
                 {templatesError}
               </div>
             ) : null}
@@ -220,7 +220,7 @@ export function NodeLibrarySidebar({
         {recentlyUsedNodes.length > 0 && !query ? (
           <section className="mb-4">
             <div className="mb-2 flex items-center justify-between px-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
                 Recently Used
               </p>
             </div>
@@ -250,12 +250,12 @@ export function NodeLibrarySidebar({
         ) : null}
 
         {!hasSearchResults ? (
-          <div className="mt-8 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
-            <Search className="mx-auto size-5 text-slate-400" />
-            <p className="mt-3 text-sm font-medium text-slate-900">
+          <div className="mt-8 rounded-md border border-dashed border-stone-700 bg-stone-950 p-4 text-center">
+            <Search className="mx-auto size-5 text-stone-500" />
+            <p className="mt-3 text-sm font-medium text-stone-100">
               No matching nodes
             </p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
+            <p className="mt-1 text-xs leading-5 text-stone-400">
               Try searching for trigger, OTP, email, condition, or database.
             </p>
           </div>
@@ -291,8 +291,8 @@ export function NodeLibrarySidebar({
                 }}
                 className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left transition ${
                   activeNodeCategory === category
-                    ? "bg-slate-950 text-white"
-                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
+                    ? "bg-amber-500/15 text-amber-200"
+                    : "text-stone-400 hover:bg-stone-800 hover:text-stone-100"
                 }`}
               >
                 <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em]">
@@ -303,8 +303,8 @@ export function NodeLibrarySidebar({
                   <span
                     className={`rounded px-1.5 py-0.5 text-[10px] ${
                       activeNodeCategory === category
-                        ? "bg-white/15 text-white"
-                        : "bg-slate-100 text-slate-500"
+                        ? "bg-amber-500/15 text-amber-200"
+                        : "bg-stone-800 text-stone-400"
                     }`}
                   >
                     {items.length + placeholders.length}
@@ -354,7 +354,7 @@ export function NodeLibrarySidebar({
       </div>
 
       {templateToast ? (
-        <div className="pointer-events-none absolute bottom-4 left-3 right-3 rounded-md border border-slate-300 bg-slate-950 px-3 py-2 text-xs font-medium text-white shadow-lg shadow-black/20">
+        <div className="pointer-events-none absolute bottom-4 left-3 right-3 rounded-md border border-amber-500/30 bg-stone-950 px-3 py-2 text-xs font-medium text-amber-100 shadow-lg shadow-black/20">
           {templateToast}
         </div>
       ) : null}
@@ -370,38 +370,38 @@ function TemplateCard({
   onUseTemplate: () => void;
 }) {
   return (
-    <article className="rounded-md border border-slate-200 bg-white p-3">
+    <article className="rounded-md border border-stone-800 bg-stone-950 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-slate-950">
+          <h3 className="truncate text-sm font-semibold text-stone-100">
             {template.name}
           </h3>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
+          <p className="mt-1 text-xs leading-5 text-stone-400">
             {template.description}
           </p>
         </div>
-        <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+        <span className="shrink-0 rounded bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
           {template.difficulty}
         </span>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-medium text-slate-500">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-medium text-stone-500">
         <span>{template.nodes.length} nodes</span>
-        <span className="text-slate-300">/</span>
+        <span className="text-stone-700">/</span>
         <span>{template.category}</span>
       </div>
 
-      <div className="mt-3 flex min-w-0 items-center gap-1 overflow-hidden text-[10px] text-slate-500">
+      <div className="mt-3 flex min-w-0 items-center gap-1 overflow-hidden text-[10px] text-stone-400">
         {template.preview.map((item, index) => (
           <span
             key={`${template.id}-${item}-${index}`}
             className="flex items-center gap-1"
           >
-            <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1">
+            <span className="rounded border border-stone-800 bg-stone-900 px-1.5 py-1">
               {item}
             </span>
             {index < template.preview.length - 1 ? (
-              <span className="text-slate-400">-&gt;</span>
+              <span className="text-stone-600">-&gt;</span>
             ) : null}
           </span>
         ))}
@@ -410,7 +410,7 @@ function TemplateCard({
       <button
         type="button"
         onClick={onUseTemplate}
-        className="mt-3 h-8 w-full rounded-md border border-slate-950 bg-slate-950 text-xs font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+        className="mt-3 h-8 w-full rounded-md border border-amber-500 bg-amber-500 text-xs font-semibold text-stone-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
       >
         Use Template
       </button>
@@ -443,23 +443,23 @@ function NodeCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="group w-full rounded-md border border-transparent bg-white p-3 text-left transition hover:border-slate-200 hover:bg-slate-50 focus-visible:border-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+      className="group w-full rounded-md border border-transparent bg-stone-900 p-3 text-left transition hover:border-stone-700 hover:bg-stone-800 focus-visible:border-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-slate-50 text-slate-700 group-hover:border-slate-300">
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border border-stone-700 bg-stone-950 text-amber-300 group-hover:border-amber-500/40">
           <Icon className="size-4" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
-            <span className="truncate text-sm font-medium text-slate-950">
+            <span className="truncate text-sm font-medium text-stone-100">
               {label}
             </span>
-            <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+            <span className="shrink-0 rounded bg-stone-800 px-1.5 py-0.5 text-[10px] font-medium text-stone-400">
               {badge}
             </span>
           </span>
           {!compact ? (
-            <span className="mt-1 block text-xs leading-5 text-slate-500">
+            <span className="mt-1 block text-xs leading-5 text-stone-400">
               {description}
             </span>
           ) : null}
@@ -480,22 +480,22 @@ function DisabledNodeCard({
     <button
       type="button"
       disabled
-      className="w-full cursor-not-allowed rounded-md border border-slate-100 bg-slate-50 p-3 text-left opacity-70"
+      className="w-full cursor-not-allowed rounded-md border border-stone-800 bg-stone-950 p-3 text-left opacity-60"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-400">
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border border-stone-800 bg-stone-900 text-stone-500">
           <Icon className="size-4" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
-            <span className="truncate text-sm font-medium text-slate-500">
+            <span className="truncate text-sm font-medium text-stone-500">
               {definition.label}
             </span>
-            <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+            <span className="shrink-0 rounded bg-stone-900 px-1.5 py-0.5 text-[10px] font-medium text-stone-500">
               {definition.badge}
             </span>
           </span>
-          <span className="mt-1 block text-xs leading-5 text-slate-400">
+          <span className="mt-1 block text-xs leading-5 text-stone-500">
             {definition.description}
           </span>
         </span>

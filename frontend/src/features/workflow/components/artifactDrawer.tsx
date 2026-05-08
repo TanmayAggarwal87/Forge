@@ -87,15 +87,15 @@ export function ArtifactDrawer({
   }
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-slate-200 bg-white shadow-[-12px_0_24px_rgba(15,23,42,0.06)]">
-      <div className="flex items-center justify-between border-b border-slate-200 p-4">
+    <aside className="flex h-full min-h-0 flex-col border-l border-stone-800 bg-stone-900 text-stone-100 shadow-[-12px_0_28px_rgba(0,0,0,0.28)]">
+      <div className="flex items-center justify-between border-b border-stone-800 p-4">
         <div className="flex items-center gap-2">
-          <FileCode2 className="size-4 text-slate-700" />
+          <FileCode2 className="size-4 text-amber-300" />
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
               Artifacts
             </p>
-            <h2 className="text-sm font-semibold text-slate-900">
+            <h2 className="text-sm font-semibold text-stone-100">
               Canvas generation
             </h2>
           </div>
@@ -104,18 +104,18 @@ export function ArtifactDrawer({
           variant="ghost"
           size="icon-sm"
           onClick={onClose}
-          className="rounded-md"
+          className="rounded-md text-stone-300 hover:bg-stone-800 hover:text-amber-300"
           title="Collapse artifact drawer"
         >
           <ChevronRight />
         </Button>
       </div>
 
-      <div className="grid gap-3 border-b border-slate-200 p-4">
+      <div className="grid gap-3 border-b border-stone-800 p-4">
         <Button
           onClick={() => void handleGenerate("workflow_definition")}
           disabled={isGenerating}
-          className="h-10 rounded-md"
+          className="h-10 rounded-md border-stone-700 bg-stone-950 text-stone-100 hover:bg-stone-800 disabled:bg-stone-950 disabled:text-stone-600"
           variant="outline"
         >
           <Play />
@@ -126,7 +126,7 @@ export function ArtifactDrawer({
         <Button
           onClick={() => void handleGenerate("backend_module")}
           disabled={isGenerating}
-          className="h-10 rounded-md"
+          className="h-10 rounded-md bg-amber-500 text-stone-950 hover:bg-amber-400 disabled:bg-stone-800 disabled:text-stone-500"
         >
           <FileCode2 />
           {generatingMode === "backend_module"
@@ -137,7 +137,7 @@ export function ArtifactDrawer({
           <Button
             onClick={() => downloadArtifactsZip(artifacts)}
             disabled={isGenerating}
-            className="h-9 rounded-md"
+            className="h-9 rounded-md border-stone-700 bg-stone-950 text-stone-100 hover:bg-stone-800 disabled:bg-stone-950 disabled:text-stone-600"
             variant="outline"
           >
             <Archive className="size-4" />
@@ -153,7 +153,7 @@ export function ArtifactDrawer({
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {errorMessage ? (
-          <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+          <div className="mb-3 rounded-md border border-red-900/70 bg-red-950/50 p-3 text-xs text-red-200">
             {errorMessage}
           </div>
         ) : null}
@@ -184,7 +184,7 @@ export function ArtifactDrawer({
             </div>
 
             {selectedArtifact ? (
-              <div className="overflow-hidden rounded-md border border-slate-900 bg-slate-950">
+              <div className="overflow-hidden rounded-md border border-stone-800 bg-stone-950">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2 text-xs text-slate-300">
                   <span>{selectedArtifact.type}</span>
                   <div className="flex items-center gap-2">
@@ -193,7 +193,7 @@ export function ArtifactDrawer({
                       variant="ghost"
                       size="sm"
                       onClick={() => downloadArtifact(selectedArtifact)}
-                      className="h-7 rounded-md px-2 text-slate-100 hover:bg-white/10"
+                      className="h-7 rounded-md px-2 text-stone-100 hover:bg-stone-800 hover:text-amber-300"
                     >
                       <Download className="size-3.5" />
                       Download
@@ -214,11 +214,11 @@ export function ArtifactDrawer({
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+    <div className="rounded-md border border-stone-800 bg-stone-950 p-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
         {label}
       </p>
-      <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+      <p className="mt-1 truncate text-sm font-semibold text-stone-100">
         {value}
       </p>
     </div>
@@ -227,7 +227,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 function GenerationWarnings({ warnings }: { warnings: string[] }) {
   return (
-    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
       <p className="font-semibold">Generation warnings</p>
       <ul className="mt-2 grid gap-1">
         {warnings.map((warning) => (
@@ -256,8 +256,8 @@ function FileTreePreview({
   onSelect: (artifactId: string) => void;
 }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+    <div className="rounded-md border border-stone-800 bg-stone-950">
+      <div className="flex items-center gap-2 border-b border-stone-800 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
         <FolderTree className="size-3.5" />
         File tree
       </div>
@@ -266,7 +266,7 @@ function FileTreePreview({
           item.type === "folder" ? (
             <div
               key={item.id}
-              className="flex h-7 items-center rounded px-2 text-xs font-semibold text-slate-700"
+              className="flex h-7 items-center rounded px-2 text-xs font-semibold text-stone-400"
               style={{ paddingLeft: `${8 + item.depth * 14}px` }}
             >
               {item.name}
@@ -278,8 +278,8 @@ function FileTreePreview({
               onClick={() => item.artifactId && onSelect(item.artifactId)}
               className={`flex h-7 w-full items-center rounded px-2 text-left text-xs ${
                 item.artifactId === selectedArtifactId
-                  ? "bg-slate-950 text-white"
-                  : "text-slate-700 hover:bg-white"
+                  ? "bg-amber-500/12 text-amber-200"
+                  : "text-stone-300 hover:bg-stone-800 hover:text-stone-100"
               }`}
               style={{ paddingLeft: `${8 + item.depth * 14}px` }}
             >
@@ -306,8 +306,8 @@ function ArtifactTab({
       onClick={onSelect}
       className={`rounded-md border px-3 py-2 text-xs font-medium transition ${
         selected
-          ? "border-slate-950 bg-slate-950 text-white"
-          : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+          ? "border-amber-500/50 bg-amber-500/15 text-amber-200"
+          : "border-stone-800 bg-stone-950 text-stone-300 hover:border-stone-700 hover:bg-stone-800 hover:text-stone-100"
       }`}
     >
       {artifact.name}
@@ -337,12 +337,12 @@ function downloadArtifactsZip(artifacts: BackendGeneratedArtifact[]) {
 
 function EmptyState() {
   return (
-    <div className="grid h-full min-h-72 place-items-center rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+    <div className="grid h-full min-h-72 place-items-center rounded-md border border-dashed border-stone-700 bg-stone-950 p-6 text-center">
       <div>
-        <p className="text-sm font-semibold text-slate-900">
+        <p className="text-sm font-semibold text-stone-100">
           No artifacts generated yet
         </p>
-        <p className="mt-2 text-xs leading-5 text-slate-500">
+        <p className="mt-2 text-xs leading-5 text-stone-500">
           Export workflow metadata for inspection, or generate a NestJS module
           from this canvas.
         </p>
