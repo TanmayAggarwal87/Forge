@@ -14,7 +14,9 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The deployed frontend is available at [https://forge-nine-sooty.vercel.app](https://forge-nine-sooty.vercel.app).
+
+For local development, open the local URL printed by `npm run dev`.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

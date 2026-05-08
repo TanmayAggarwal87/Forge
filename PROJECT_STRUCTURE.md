@@ -164,10 +164,12 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Default local URLs:
+Deployed URLs:
 
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:3000/v1` if running backend on the default Nest port. If both apps run locally at once, use separate ports and set `NEXT_PUBLIC_API_URL` accordingly.
+- Frontend: `https://forge-nine-sooty.vercel.app`
+- Backend API: `https://forge-production-4760.up.railway.app/v1`
+
+For local development, override `NEXT_PUBLIC_API_URL` and `WEB_ORIGIN` in local env files if you need to point either app at a local server.
 
 ## Checks
 

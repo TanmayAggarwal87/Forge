@@ -1,6 +1,8 @@
 import type { ApiError } from "@/types/domainTypes";
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/v1";
+const apiBaseUrl =
+  process.env.NEXT_PUBLIC_API_URL ??
+  "https://forge-production-4760.up.railway.app/v1";
 
 export async function apiRequest<T>(
   path: string,
