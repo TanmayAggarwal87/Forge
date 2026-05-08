@@ -1,12 +1,10 @@
-import { randomBytes, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import {
-  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
   Optional,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { DataSource, Repository } from 'typeorm';
@@ -44,9 +42,9 @@ import {
   WorkspaceRole,
 } from './identity.types';
 import { AuditLogStore } from './stores/audit-log.store';
+import { AuthStore } from './stores/auth.store';
 import { ForgeMemoryState } from './stores/forge-memory-state.service';
 import { toIsoString } from './stores/utils/date.util';
-import { hashPassword, isPasswordValid } from './stores/utils/password.util';
 import { slugify } from './stores/utils/slug.util';
 import { isUuid, toNullableUuid } from './stores/utils/uuid.util';
 
@@ -139,6 +137,8 @@ export class InMemoryStoreService implements OnModuleInit {
     @Optional()
     private readonly auditLogStore: AuditLogStore = new AuditLogStore(state),
     @Optional()
+    private readonly authStore: AuthStore = new AuthStore(state, auditLogStore),
+    @Optional()
     @InjectRepository(UserEntity)
     private readonly userRepository?: Repository<UserEntity>,
     @Optional()
@@ -185,96 +185,25 @@ export class InMemoryStoreService implements OnModuleInit {
     password: string,
     name: string,
   ): { token: string; user: SessionUser } {
-    const normalizedEmail = email.trim().toLowerCase();
-    const existingUserId = this.state.usersByEmail.get(normalizedEmail);
-
-    if (existingUserId !== undefined) {
-      throw new ConflictException('A user with this email already exists.');
-    }
-
-    const user = this.createUser(normalizedEmail, password, name);
-    this.recordAudit({
-      actorUserId: user.id,
-      workspaceId: null,
-      action: 'auth.register',
-      targetType: 'user',
-      targetId: user.id,
-      metadata: { email: user.email },
-    });
-
-    return this.createSession(user);
+    const result = this.authStore.register(email, password, name);
+    this.saveDatabase();
+    return result;
   }
 
   login(email: string, password: string): { token: string; user: SessionUser } {
-    const normalizedEmail = email.trim().toLowerCase();
-    const existingUserId = this.state.usersByEmail.get(normalizedEmail);
-    const user =
-      existingUserId === undefined
-        ? undefined
-        : this.state.users.get(existingUserId);
-
-    if (!user || !isPasswordValid(user, password)) {
-      throw new UnauthorizedException('Email or password is incorrect.');
-    }
-
-    return this.createSession(user);
-  }
-
-  private createSession(user: User): { token: string; user: SessionUser } {
-    const token = randomBytes(32).toString('hex');
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7);
-
-    this.state.sessions.set(token, {
-      token,
-      userId: user.id,
-      createdAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-    });
-
-    this.recordAudit({
-      actorUserId: user.id,
-      workspaceId: null,
-      action: 'auth.sign_in',
-      targetType: 'user',
-      targetId: user.id,
-      metadata: { email: user.email },
-    });
+    const result = this.authStore.login(email, password);
     this.saveDatabase();
-
-    return { token, user: this.toSessionUser(user) };
+    return result;
   }
 
   getSession(token: string): { session: Session; user: SessionUser } {
-    const session = this.state.sessions.get(token);
-    if (!session || new Date(session.expiresAt).getTime() <= Date.now()) {
-      if (session) {
-        this.state.sessions.delete(token);
-        this.saveDatabase();
-      }
-      throw new UnauthorizedException('Authentication is required.');
-    }
-
-    const user = this.state.users.get(session.userId);
-    if (!user) {
-      this.state.sessions.delete(token);
-      this.saveDatabase();
-      throw new UnauthorizedException('Authentication is required.');
-    }
-
-    return { session, user: this.toSessionUser(user) };
+    const result = this.authStore.getSession(token);
+    this.saveDatabase();
+    return result;
   }
 
   signOut(token: string, actorUserId: string): void {
-    this.state.sessions.delete(token);
-    this.recordAudit({
-      actorUserId,
-      workspaceId: null,
-      action: 'auth.sign_out',
-      targetType: 'user',
-      targetId: actorUserId,
-      metadata: {},
-    });
+    this.authStore.signOut(token, actorUserId);
     this.saveDatabase();
   }
 
@@ -1040,24 +969,6 @@ export class InMemoryStoreService implements OnModuleInit {
     return this.auditLogStore.listAuditLogs(workspaceId, userId);
   }
 
-  private createUser(email: string, password: string, name?: string): User {
-    const now = new Date().toISOString();
-    const passwordSalt = randomBytes(16).toString('hex');
-    const user: User = {
-      id: randomUUID(),
-      email,
-      name: name?.trim() || email.split('@')[0],
-      passwordHash: hashPassword(password, passwordSalt),
-      passwordSalt,
-      createdAt: now,
-    };
-
-    this.state.users.set(user.id, user);
-    this.state.usersByEmail.set(user.email, user.id);
-    this.saveDatabase();
-    return user;
-  }
-
   private getMembership(
     workspaceId: string,
     userId: string,
@@ -1070,14 +981,6 @@ export class InMemoryStoreService implements OnModuleInit {
 
   private recordAudit(input: Omit<AuditLog, 'id' | 'createdAt'>): void {
     this.auditLogStore.recordAudit(input);
-  }
-
-  private toSessionUser(user: User): SessionUser {
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-    };
   }
 
   private async loadDatabase(): Promise<void> {

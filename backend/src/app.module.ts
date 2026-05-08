@@ -11,6 +11,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller';
 import { WorkspacesService } from './workspaces/workspaces.service';
 import { InMemoryStoreService } from './identity/in-memory-store.service';
 import { AuditLogStore } from './identity/stores/audit-log.store';
+import { AuthStore } from './identity/stores/auth.store';
 import { ForgeMemoryState } from './identity/stores/forge-memory-state.service';
 import { NodeRegistryController } from './workflows/node-registry.controller';
 import { TemplatesController } from './workflows/templates.controller';
@@ -37,6 +38,7 @@ import { WorkflowsService } from './workflows/workflows.service';
     AuditService,
     AuditLogStore,
     AuthService,
+    AuthStore,
     ForgeMemoryState,
     InMemoryStoreService,
     ProjectsService,
