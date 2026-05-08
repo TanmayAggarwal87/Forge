@@ -3,15 +3,9 @@ import { randomUUID } from 'crypto';
 import type { Project } from '../identity.types';
 import { AuditLogStore } from './audit-log.store';
 import { ForgeMemoryState } from './forge-memory-state.service';
+import type { CreateProjectInput } from './store-input.types';
 import { WorkspaceStore } from './workspace.store';
 import { slugify } from './utils/slug.util';
-
-type CreateProjectInput = {
-  workspaceId: string;
-  name: string;
-  description?: string | null;
-  actorUserId: string;
-};
 
 @Injectable()
 export class ProjectStore {

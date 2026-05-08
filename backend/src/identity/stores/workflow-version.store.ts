@@ -3,15 +3,8 @@ import type { Workflow, WorkflowVersion } from '../identity.types';
 import { AuditLogStore } from './audit-log.store';
 import { ForgeMemoryState } from './forge-memory-state.service';
 import { ProjectStore } from './project.store';
+import type { ActivateWorkflowVersionInput } from './store-input.types';
 import { WorkflowStore } from './workflow.store';
-
-type ActivateWorkflowVersionInput = {
-  projectId: string;
-  workflowId: string;
-  workflowVersionId: string;
-  actorUserId: string;
-  auditAction: 'workflow.version_activated' | 'workflow.rolled_back';
-};
 
 @Injectable()
 export class WorkflowVersionStore {

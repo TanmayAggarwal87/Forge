@@ -13,6 +13,7 @@ import { InMemoryStoreService } from './identity/in-memory-store.service';
 import { AuditLogStore } from './identity/stores/audit-log.store';
 import { AuthStore } from './identity/stores/auth.store';
 import { ForgeMemoryState } from './identity/stores/forge-memory-state.service';
+import { ForgeStoreFacade } from './identity/stores/forge-store.facade';
 import { GeneratedArtifactStore } from './identity/stores/generated-artifact.store';
 import { PostgresStateLoaderService } from './identity/stores/persistence/postgres-state-loader.service';
 import { PostgresStatePersisterService } from './identity/stores/persistence/postgres-state-persister.service';
@@ -48,8 +49,9 @@ import { WorkflowsService } from './workflows/workflows.service';
     AuthService,
     AuthStore,
     ForgeMemoryState,
+    ForgeStoreFacade,
     GeneratedArtifactStore,
-    InMemoryStoreService,
+    { provide: InMemoryStoreService, useExisting: ForgeStoreFacade },
     PostgresStateLoaderService,
     PostgresStatePersisterService,
     ProjectStore,

@@ -1,48 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import type {
-  Workflow,
-  WorkflowGraph,
-  WorkflowIntermediateRepresentation,
-  WorkflowValidationResult,
-  WorkflowVersion,
-} from '../identity.types';
+import type { Workflow, WorkflowVersion } from '../identity.types';
 import { AuditLogStore } from './audit-log.store';
 import { ForgeMemoryState } from './forge-memory-state.service';
 import { ProjectStore } from './project.store';
+import type {
+  CreateWorkflowInput,
+  DeactivateWorkflowInput,
+  PublishWorkflowInput,
+  SaveWorkflowDraftInput,
+} from './store-input.types';
 import { slugify } from './utils/slug.util';
-
-type CreateWorkflowInput = {
-  projectId: string;
-  name: string;
-  description?: string | null;
-  graph: WorkflowGraph;
-  validation: WorkflowValidationResult;
-  actorUserId: string;
-};
-
-type SaveWorkflowDraftInput = {
-  projectId: string;
-  workflowId: string;
-  name?: string;
-  description?: string | null;
-  graph: WorkflowGraph;
-  validation: WorkflowValidationResult;
-  actorUserId: string;
-};
-
-type PublishWorkflowInput = {
-  projectId: string;
-  workflowId: string;
-  compiledIr: WorkflowIntermediateRepresentation;
-  actorUserId: string;
-};
-
-type DeactivateWorkflowInput = {
-  projectId: string;
-  workflowId: string;
-  actorUserId: string;
-};
 
 @Injectable()
 export class WorkflowStore {

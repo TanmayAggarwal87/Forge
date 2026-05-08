@@ -7,12 +7,8 @@ import type {
 } from '../identity.types';
 import { AuditLogStore } from './audit-log.store';
 import { ForgeMemoryState } from './forge-memory-state.service';
+import type { CreateWorkspaceInput } from './store-input.types';
 import { slugify } from './utils/slug.util';
-
-type CreateWorkspaceInput = {
-  name: string;
-  actorUserId: string;
-};
 
 @Injectable()
 export class WorkspaceStore {

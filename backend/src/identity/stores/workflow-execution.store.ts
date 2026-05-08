@@ -6,18 +6,8 @@ import type {
   WorkflowExecutionStep,
 } from '../identity.types';
 import { ForgeMemoryState } from './forge-memory-state.service';
+import type { CreateExecutionInput } from './store-input.types';
 import { WorkflowStore } from './workflow.store';
-
-type CreateExecutionInput = {
-  projectId: string;
-  workflowId: string;
-  workflowVersionId: string;
-  status: WorkflowExecution['status'];
-  triggerType: WorkflowExecution['triggerType'];
-  traceId: string;
-  idempotencyKey?: string | null;
-  input: Record<string, unknown>;
-};
 
 @Injectable()
 export class WorkflowExecutionStore {
