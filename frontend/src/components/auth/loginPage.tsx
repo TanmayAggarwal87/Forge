@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, LockKeyhole, Mail, ShieldCheck, Users } from "lucide-react";
 import { BrandMark } from "@/components/common/brandMark";
@@ -8,7 +8,7 @@ import { TrustSignal } from "@/components/auth/trustSignal";
 import { Button } from "@/components/ui/button";
 import { ErrorMessage } from "@/components/ui/errorMessage";
 import { apiRequest, getErrorMessage } from "@/lib/apiClient";
-import { storeSessionToken } from "@/lib/sessionStorage";
+import { getStoredSessionToken, storeSessionToken } from "@/lib/sessionStorage";
 import type { AuthPayload } from "@/types/domainTypes";
 
 type AuthMode = "login" | "register";
@@ -22,6 +22,12 @@ export function LoginPage() {
   const [isBusy, setIsBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isRegistering = mode === "register";
+
+  useEffect(() => {
+    if (getStoredSessionToken()) {
+      router.replace("/dashboard");
+    }
+  }, [router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
