@@ -8,7 +8,6 @@ async function bootstrap() {
     credentials: true,
   });
   app.setGlobalPrefix('v1');
-  console.log(`PORT AT,${process.env.PORT}`)
   await app.listen(process.env.PORT ?? 3000);
 
 }
