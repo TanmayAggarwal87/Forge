@@ -8,7 +8,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.setGlobalPrefix('v1');
-  console.log(`DB connected and running,${process.env.DATABSE_URL}`)
+  console.log(`PORT AT,${process.env.PORT}`)
   await app.listen(process.env.PORT ?? 3000);
 
 }
